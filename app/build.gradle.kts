@@ -13,6 +13,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "0.2.1"
+        manifestPlaceholders["appLabel"] = "Girvi Khata"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -34,6 +35,7 @@ android {
         debug {
             applicationIdSuffix = ".testing"
             versionNameSuffix = "-testing"
+            manifestPlaceholders["appLabel"] = "Girvi Khata Test"
             signingConfig = signingConfigs.getByName("testing")
         }
         release {
