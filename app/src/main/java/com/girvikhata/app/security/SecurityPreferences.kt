@@ -2,71 +2,78 @@ package com.girvikhata.app.security
 
 import android.content.Context
 import android.util.Base64
+import java.time.Instant
 
-/**
- * Stores only a salted PIN verifier and lockout metadata.
- * The raw PIN is never persisted.
- */
+/** Stores only a salted PIN verifier and lockout metadata. The raw PIN is never persisted. */
 class SecurityPreferences(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val hasher = PinHasher()
+    private val policy = PinAttemptPolicy()
 
     fun hasPin(): Boolean = preferences.contains(KEY_HASH) && preferences.contains(KEY_SALT)
 
     fun savePin(pin: CharArray) {
-        val record = PinHasher.create(pin)
+        val stored = hasher.create(pin)
         preferences.edit()
-            .putString(KEY_HASH, Base64.encodeToString(record.hash, Base64.NO_WRAP))
-            .putString(KEY_SALT, Base64.encodeToString(record.salt, Base64.NO_WRAP))
-            .putInt(KEY_ITERATIONS, record.iterations)
+            .putString(KEY_HASH, Base64.encodeToString(stored.hash, Base64.NO_WRAP))
+            .putString(KEY_SALT, Base64.encodeToString(stored.salt, Base64.NO_WRAP))
+            .putInt(KEY_ITERATIONS, stored.iterations)
             .putInt(KEY_FAILURES, 0)
             .putLong(KEY_LOCKED_UNTIL, 0L)
             .apply()
-        pin.fill('\u0000')
     }
 
-    fun verify(pin: CharArray, nowMillis: Long = System.currentTimeMillis()): PinVerificationResult {
-        val lockedUntil = preferences.getLong(KEY_LOCKED_UNTIL, 0L)
-        if (lockedUntil > nowMillis) {
+    fun verify(pin: CharArray, now: Instant = Instant.now()): PinVerificationResult {
+        val current = readLockState()
+        if (current.isLocked(now)) {
             pin.fill('\u0000')
-            return PinVerificationResult.Locked(lockedUntil)
+            return PinVerificationResult.Locked(current.lockedUntil!!.toEpochMilli())
         }
 
-        val record = readRecord() ?: run {
+        val stored = readStoredPin() ?: run {
             pin.fill('\u0000')
             return PinVerificationResult.NotConfigured
         }
 
-        val valid = PinHasher.verify(pin, record)
-        pin.fill('\u0000')
+        val valid = runCatching { hasher.verify(pin, stored) }.getOrDefault(false)
         if (valid) {
-            preferences.edit().putInt(KEY_FAILURES, 0).putLong(KEY_LOCKED_UNTIL, 0L).apply()
+            writeLockState(policy.onSuccess())
             return PinVerificationResult.Success
         }
 
-        val failures = preferences.getInt(KEY_FAILURES, 0) + 1
-        val delayMillis = LockoutPolicy.delayMillis(failures)
-        val nextLockedUntil = if (delayMillis > 0) nowMillis + delayMillis else 0L
-        preferences.edit()
-            .putInt(KEY_FAILURES, failures)
-            .putLong(KEY_LOCKED_UNTIL, nextLockedUntil)
-            .apply()
-        return PinVerificationResult.Failure(failures, nextLockedUntil)
+        val next = policy.onFailure(current, now)
+        writeLockState(next)
+        return PinVerificationResult.Failure(
+            attempts = next.failedAttempts,
+            lockedUntilMillis = next.lockedUntil?.toEpochMilli() ?: 0L,
+        )
     }
 
-    fun clearForDevelopmentOnly() {
-        preferences.edit().clear().apply()
-    }
-
-    private fun readRecord(): PinRecord? {
+    private fun readStoredPin(): StoredPin? {
         val hash = preferences.getString(KEY_HASH, null) ?: return null
         val salt = preferences.getString(KEY_SALT, null) ?: return null
         return runCatching {
-            PinRecord(
+            StoredPin(
                 hash = Base64.decode(hash, Base64.NO_WRAP),
                 salt = Base64.decode(salt, Base64.NO_WRAP),
-                iterations = preferences.getInt(KEY_ITERATIONS, PinHasher.DEFAULT_ITERATIONS),
+                iterations = preferences.getInt(KEY_ITERATIONS, 210_000),
             )
         }.getOrNull()
+    }
+
+    private fun readLockState(): LockState {
+        val until = preferences.getLong(KEY_LOCKED_UNTIL, 0L)
+        return LockState(
+            failedAttempts = preferences.getInt(KEY_FAILURES, 0),
+            lockedUntil = until.takeIf { it > 0 }?.let(Instant::ofEpochMilli),
+        )
+    }
+
+    private fun writeLockState(state: LockState) {
+        preferences.edit()
+            .putInt(KEY_FAILURES, state.failedAttempts)
+            .putLong(KEY_LOCKED_UNTIL, state.lockedUntil?.toEpochMilli() ?: 0L)
+            .apply()
     }
 
     companion object {
