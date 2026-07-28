@@ -33,7 +33,18 @@ For every APK, test in this order:
 
 ### v0.2.0-alpha.2-fixed
 
-Status: VERIFIED TESTING BUILD — OWNER TEST PENDING
+Status: VERIFIED TESTING BUILD — OWNER APPROVED
+
+Owner approval:
+
+- Installed successfully as `Girvi Khata Test`.
+- PIN setup/unlock passed.
+- Category creation passed.
+- Girvi creation and encrypted saving passed.
+- Dashboard totals, customer search, and girvi listing passed.
+- Manual lock/unlock passed.
+- Full close/reopen persistence passed.
+- Approved as the permanent testing-package baseline for future in-place upgrades.
 
 Build source:
 
@@ -77,25 +88,14 @@ Included scope:
 - Saved customer search and saved girvi listing.
 - One-month and six-month interest preview.
 
-Owner test focus:
+Known limitations at approval:
 
-1. Install beside the older `Girvi Khata` Alpha 1 app.
-2. Confirm the new icon/name is `Girvi Khata Test`.
-3. Create a PIN in the testing app.
-4. Add a category and create a girvi with test-only values.
-5. Confirm dashboard, customer search, and girvi list update.
-6. Lock/unlock and fully close/reopen the testing app; verify data remains.
-7. Keep this testing app installed so the next APK can be tested as a direct update.
-
-Known limitations:
-
-- The old Alpha 1 PIN/data cannot migrate automatically because it belongs to a different package/signing identity.
 - Persistence is an encrypted snapshot store, not yet the final transaction-safe relational database.
-- Multiple items per girvi are not yet available.
-- Existing customers cannot yet be selected from a dedicated picker.
-- Category edit/deactivate is pending.
+- Multiple-item UI is pending.
+- Existing-customer picker UI is pending.
+- Category edit/deactivate UI is pending.
 - Payment posting and settlement are pending.
-- Biometric unlock and lifecycle auto-lock are pending.
+- Biometric prompt and lifecycle auto-lock wiring are pending.
 - Google Drive backup/restore is pending.
 - PDF receipts and printing are pending.
 
