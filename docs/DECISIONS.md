@@ -41,3 +41,33 @@
 **Decision:** Every meaningful change updates `docs/PROGRESS.md`. New ideas or decisions update this file, and backup/security changes update their respective blueprints.
 
 **Reason:** The repository itself must always show what is complete, pending, changed, and why.
+
+## ADR-008 — PIN is an unlock factor, not the backup encryption key
+
+**Decision:** The six-digit PIN is salted and stretched for local verification. It never directly encrypts the database or cloud backup.
+
+**Reason:** Six digits do not provide enough entropy for long-term backup encryption. Device and recovery key layers remain separate.
+
+## ADR-009 — Authenticated encryption only
+
+**Decision:** Device-protected payloads use AES-256-GCM with unique random IVs and optional associated data.
+
+**Reason:** Confidentiality without integrity is insufficient for financial records and recovery material.
+
+## ADR-010 — Exact money arithmetic
+
+**Decision:** All monetary and percentage calculations use `BigDecimal`; floating-point money arithmetic is prohibited.
+
+**Reason:** Binary floating point can create silent rounding errors in long-running interest calculations.
+
+## ADR-011 — Domain engine independent from UI and storage
+
+**Decision:** Interest calculation, payment allocation, validation, numbering, and financial invariants remain pure Kotlin modules without Compose or database dependencies.
+
+**Reason:** The same tested rules must drive screens, receipts, reports, and restored records.
+
+## ADR-012 — Backup success requires verification
+
+**Decision:** Backup state becomes `VERIFIED` only after package creation, encryption, upload, metadata read-back, hash verification, and manifest validation.
+
+**Reason:** A successful upload request does not prove the backup can be restored.
