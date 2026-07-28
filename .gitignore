@@ -1,0 +1,38 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+**/build/
+.cxx/
+.externalNativeBuild/
+
+# Signing and credentials
+*.jks
+*.keystore
+keystore.properties
+google-services.json
+client_secret*.json
+*.p12
+*.pem
+*.key
+.env
+.env.*
+
+# Sensitive app data and exports
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.enc
+*.backup
+*.gkb
+/backups/
+/exports/
+/screenshots/private/
+
+# Photos and documents must use dummy fixtures only
+/customer-data/
+/production-data/
