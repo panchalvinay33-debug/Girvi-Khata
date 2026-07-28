@@ -40,7 +40,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.girvi-testing-signing
-          key: girvi-testing-signing-v1
+          key: girvi-testing-signing-v2
 
       - name: Prepare stable testing signing
         shell: bash
@@ -50,14 +50,13 @@ jobs:
           mkdir -p "$SIGNING_DIR"
 
           if [ ! -f "$SIGNING_DIR/testing.keystore" ]; then
-            STORE_PASSWORD="$(openssl rand -hex 24)"
-            KEY_PASSWORD="$(openssl rand -hex 24)"
-            printf '%s' "$STORE_PASSWORD" > "$SIGNING_DIR/store-password"
-            printf '%s' "$KEY_PASSWORD" > "$SIGNING_DIR/key-password"
+            SIGNING_PASSWORD="$(openssl rand -hex 24)"
+            printf '%s' "$SIGNING_PASSWORD" > "$SIGNING_DIR/signing-password"
             keytool -genkeypair \
               -keystore "$SIGNING_DIR/testing.keystore" \
-              -storepass "$STORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
+              -storetype PKCS12 \
+              -storepass "$SIGNING_PASSWORD" \
+              -keypass "$SIGNING_PASSWORD" \
               -alias girvi-testing \
               -keyalg RSA \
               -keysize 3072 \
@@ -65,9 +64,15 @@ jobs:
               -dname "CN=Girvi Khata Testing, O=Girvi Khata, C=IN"
           fi
 
+          SIGNING_PASSWORD="$(cat "$SIGNING_DIR/signing-password")"
+          keytool -list \
+            -keystore "$SIGNING_DIR/testing.keystore" \
+            -storepass "$SIGNING_PASSWORD" \
+            -alias girvi-testing >/dev/null
+
           echo "GIRVI_TEST_KEYSTORE=$SIGNING_DIR/testing.keystore" >> "$GITHUB_ENV"
-          echo "GIRVI_TEST_STORE_PASSWORD=$(cat "$SIGNING_DIR/store-password")" >> "$GITHUB_ENV"
-          echo "GIRVI_TEST_KEY_PASSWORD=$(cat "$SIGNING_DIR/key-password")" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_STORE_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_KEY_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
           echo "GIRVI_TEST_KEY_ALIAS=girvi-testing" >> "$GITHUB_ENV"
 
       - name: Run unit tests
