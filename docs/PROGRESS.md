@@ -91,13 +91,15 @@ This file must be updated with every meaningful code, design, security, backup, 
 
 ### Validation status
 
-- 🚧 Android build and Security Guard are running for this milestone.
-- 🧪 Physical-device tests required: create girvi, close/reopen app, unlock, verify customer/girvi remains.
+- ✅ Android build and Security Guard passed for the first Alpha 2 artifact.
+- ⚠️ Physical install exposed a package-signature conflict with Alpha 1 because CI used a new temporary debug key.
+- 🧪 Replacement Alpha 2 testing APK required after signing fix.
 
 ### Next concrete work
 
-- ⏳ Fix any CI compile/test issues from the encrypted-persistence milestone.
-- ⏳ Produce Alpha 2 APK after all checks pass.
+- ⏳ Verify stable testing package/signing build in CI.
+- ⏳ Produce replacement Alpha 2 APK.
+- ⏳ Test create girvi, close/reopen app, unlock, and verify customer/girvi remains.
 - ⏳ Add edit/deactivate flows for categories.
 - ⏳ Add customer selection instead of name-only matching.
 - ⏳ Add multiple items per girvi and detailed calculation screen.
@@ -115,6 +117,16 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ✅ Large new ideas will be recorded as future milestones instead of silently expanding the current test scope.
 - ⏳ Alpha 1 approved baseline must be merged into `main` before the next independent milestone branch is finalized.
 - 🧪 Encrypted-persistence work will receive a separate Alpha 2 APK and physical-device test before merge.
+
+## 2026-07-28 — Stable testing installation fix
+
+- ✅ Root cause confirmed: Alpha 1 and Alpha 2 were signed by different ephemeral CI debug keys.
+- ✅ Testing APK now uses separate package ID `com.girvikhata.app.testing`, so it does not conflict with the old prototype package.
+- ✅ Testing app label changed to `Girvi Khata Test` so both icons are clearly distinguishable.
+- ✅ CI now creates one random non-production testing key and retains it in a fixed GitHub Actions cache.
+- ✅ Future testing APKs reuse the same package and signing identity, allowing direct upgrades while preserving PIN and encrypted local data.
+- ✅ Production package and production release signing remain separate and are not stored in source control.
+- 🧪 First stable-signing testing APK must be installed once; all later testing APKs should upgrade it directly.
 
 ## Update rule
 
