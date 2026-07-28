@@ -122,10 +122,25 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ✅ Transparent month-wise simple-interest breakup added.
 - ✅ Category deactivate safety rule blocks deactivation while an active girvi uses that category.
 - ✅ Session auto-lock timeout policy added with clock-rollback protection.
-- ✅ Biometric hardware/enrollment capability layer added; prompt wiring remains pending.
+- ✅ Biometric hardware/enrollment capability layer added.
 - ✅ New automated tests added for customer matching, searching, multiple-item validation, numbering, calculation breakup, category safety, and session locking.
-- 🚧 Android CI and Security Guard validation are running for this milestone.
-- ⏳ Next visible wiring: customer picker, multi-item editor, calculation detail screen, category activate/deactivate controls, lifecycle auto-lock, and biometric prompt.
+
+## 2026-07-28 — Alpha 3 visible workflow implementation
+
+- ✅ Existing-customer search and picker wired into the new-girvi screen.
+- ✅ Customer selection fills saved mobile/address and reuses the existing customer ID.
+- ✅ Multiple-item editor wired with add/remove, category, item name, quantity, gross weight, deduction, net-weight preview, and description.
+- ✅ Girvi save now persists all item rows in encrypted schema v2.
+- ✅ Girvi list and dashboard now display real multi-item totals.
+- ✅ Girvi detail screen added with every saved item and gross/deduction/net weight.
+- ✅ Month-selectable detailed simple-interest screen added with month-wise rows and total payable.
+- ✅ Category activate/deactivate controls wired; categories used by active girvi remain protected.
+- ✅ Real strong-biometric prompt wired to the lock screen when enrolled hardware is available.
+- ✅ Activity lifecycle wired to the 30-second background auto-lock policy.
+- ✅ Testing version advanced to `0.3.0-testing`, version code 3, retaining the permanent testing package/signature.
+- ✅ Alpha 2 encrypted records remain readable through the v1-to-v2 migration fallback.
+- 🚧 Android unit tests, Compose compilation, signing, APK packaging, and Security Guard are running.
+- 🧪 Next physical test must verify direct upgrade over Alpha 2, old record retention, fingerprint unlock, background lock, multiple-item save, category safety, and calculation detail.
 
 ## Update rule
 
