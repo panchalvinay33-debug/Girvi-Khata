@@ -104,6 +104,18 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ⏳ Add lifecycle auto-lock and biometric unlock.
 - ⏳ Add transaction-safe encrypted relational persistence and migrations.
 
+## 2026-07-28 — Mandatory test-before-merge process
+
+- ✅ Owner confirmed that every milestone will be tested separately before merging.
+- ✅ `main` is now defined as the latest owner-approved testing baseline.
+- ✅ New work must remain on a feature/milestone branch until its APK is tested and approved.
+- ✅ Mandatory workflow documented in `docs/DEVELOPMENT_WORKFLOW.md`.
+- ✅ Roadmap updated with the branch → APK → owner test → fix → approval → merge gate.
+- ✅ Every milestone must update roadmap, progress, decisions, testing releases, and the backup blueprint when data/security/backup behavior changes.
+- ✅ Large new ideas will be recorded as future milestones instead of silently expanding the current test scope.
+- ⏳ Alpha 1 approved baseline must be merged into `main` before the next independent milestone branch is finalized.
+- 🧪 Encrypted-persistence work will receive a separate Alpha 2 APK and physical-device test before merge.
+
 ## Update rule
 
 For every future change, append the date, completed behavior, security/backup impact, tests, decisions, and next concrete task.
