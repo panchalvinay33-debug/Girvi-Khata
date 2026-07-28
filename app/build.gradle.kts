@@ -11,14 +11,31 @@ android {
         applicationId = "com.girvikhata.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        create("testing") {
+            val keystorePath = System.getenv("GIRVI_TEST_KEYSTORE")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("GIRVI_TEST_STORE_PASSWORD")
+                keyAlias = System.getenv("GIRVI_TEST_KEY_ALIAS")
+                keyPassword = System.getenv("GIRVI_TEST_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            applicationIdSuffix = ".testing"
+            versionNameSuffix = "-testing"
+            signingConfig = signingConfigs.getByName("testing")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
