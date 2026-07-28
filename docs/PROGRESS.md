@@ -45,34 +45,64 @@ This file must be updated with every meaningful code, design, security, backup, 
 
 ### Automated tests added
 
-- 🧪 Simple monthly interest.
-- 🧪 Extra-day full-month calculation.
-- 🧪 Half-month slab calculation.
-- 🧪 Six-month compound calculation.
-- 🧪 Manual discount separation.
-- 🧪 Invalid date rejection.
-- 🧪 Interest-first, principal-first, and invalid custom payment allocation.
-- 🧪 PIN hash verification, weak PIN rejection, and fifth-attempt lockout.
+- ✅ Simple monthly interest.
+- ✅ Extra-day full-month calculation.
+- ✅ Half-month slab calculation.
+- ✅ Six-month compound calculation.
+- ✅ Manual discount separation.
+- ✅ Invalid date rejection.
+- ✅ Interest-first, principal-first, and invalid custom payment allocation.
+- ✅ PIN hash verification, weak PIN rejection, and fifth-attempt lockout.
+
+## 2026-07-28 — Alpha 1 testing milestone
+
+- ✅ Real PIN enrollment and verification wired into Compose.
+- ✅ Dashboard, Customers, Girvi, Masters, and More tabs working.
+- ✅ Android CI unit tests passed.
+- ✅ Debug APK built and artifact verified.
+- ✅ Alpha 1 APK shared for physical-device testing.
+- ✅ Owner confirmed the Alpha 1 flow works properly.
+
+## 2026-07-28 — Encrypted local persistence and girvi-entry milestone
+
+### Completed
+
+- ✅ Added app-private encrypted snapshot storage.
+- ✅ Business records are serialized in memory and encrypted before disk write.
+- ✅ AES-256-GCM key is generated and protected by Android Keystore.
+- ✅ Store uses authenticated associated data and a versioned binary envelope.
+- ✅ Writes use a temporary file followed by replacement to reduce partial-write risk.
+- ✅ Customer records now persist across app restarts.
+- ✅ Categories now persist and can be manually added.
+- ✅ Girvi records now persist across app restarts.
+- ✅ New Girvi screen collects customer, mobile, address, category, item, weight, principal, and monthly interest rate.
+- ✅ New customers are created during girvi entry; matching customers are reused.
+- ✅ Dashboard totals are calculated from saved records.
+- ✅ Customer search and girvi lists use saved encrypted data.
+- ✅ One-month and six-month simple-interest preview added to the entry screen.
 
 ### Security/backup impact
 
-- ✅ No business data or encryption material was added to GitHub.
-- ✅ Backup is represented as a verified state machine; an upload alone is not considered successful.
-- ✅ Device encryption uses authenticated AES-GCM with unique system-generated IVs.
-- ⚠️ Repository is still Public. Change it to Private before OAuth/signing configuration.
+- ✅ Plain customer and girvi JSON is never written to disk.
+- ✅ The encrypted store remains inside Android app-private storage.
+- ✅ Android automatic cloud backup remains disabled.
+- ⚠️ This snapshot store is an interim persistence layer. It will be migrated to a transaction-safe encrypted relational store before production use.
+- ⚠️ Google Drive backup/restore is not yet active.
 
 ### Validation status
 
-- 🧪 Source and invariants reviewed.
-- ⚠️ Full Gradle compilation is still pending because a Gradle wrapper binary/build runner is not yet present in this environment.
+- 🚧 Android build and Security Guard are running for this milestone.
+- 🧪 Physical-device tests required: create girvi, close/reopen app, unlock, verify customer/girvi remains.
 
 ### Next concrete work
 
-- ⏳ Wire PIN enrollment/verification into Compose UI and encrypted preferences.
-- ⏳ Add biometric prompt and background auto-lock lifecycle controller.
-- ⏳ Implement Room entities/DAOs and encrypted database-key opening flow.
-- ⏳ Build customer/category/item screens and new-girvi wizard.
-- ⏳ Add CI Android build after wrapper/bootstrap is available.
+- ⏳ Fix any CI compile/test issues from the encrypted-persistence milestone.
+- ⏳ Produce Alpha 2 APK after all checks pass.
+- ⏳ Add edit/deactivate flows for categories.
+- ⏳ Add customer selection instead of name-only matching.
+- ⏳ Add multiple items per girvi and detailed calculation screen.
+- ⏳ Add lifecycle auto-lock and biometric unlock.
+- ⏳ Add transaction-safe encrypted relational persistence and migrations.
 
 ## Update rule
 
