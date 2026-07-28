@@ -8,7 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -28,7 +29,6 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -88,14 +89,12 @@ private fun GirviKhataApp(securityPreferences: SecurityPreferences) {
     }
 
     when (session) {
-        SessionState.ENROLL_PIN -> PinEnrollmentScreen(
-            onSave = { pin ->
-                runCatching { securityPreferences.savePin(pin.toCharArray()) }
-                    .onSuccess { session = SessionState.UNLOCKED }
-            },
-        )
+        SessionState.ENROLL_PIN -> PinEnrollmentScreen { pin ->
+            runCatching { securityPreferences.savePin(pin.toCharArray()) }
+                .onSuccess { session = SessionState.UNLOCKED }
+        }
         SessionState.LOCKED -> PinUnlockScreen(
-            onVerify = { pin -> securityPreferences.verify(pin.toCharArray()) },
+            onVerify = { securityPreferences.verify(it.toCharArray()) },
             onUnlocked = { session = SessionState.UNLOCKED },
         )
         SessionState.UNLOCKED -> MainShell(onLock = { session = SessionState.LOCKED })
@@ -108,19 +107,13 @@ private fun PinEnrollmentScreen(onSave: (String) -> Unit) {
     var confirm by rememberSaveable { mutableStateOf("") }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
 
-    SecurePanel(title = "Apna 6-digit PIN Banaye", subtitle = "PIN mobile mein plain text mein save nahi hoga") {
-        SecurePinField("Naya PIN", pin) { pin = it.take(6).filter(Char::isDigit) }
-        SecurePinField("PIN Dobara", confirm) { confirm = it.take(6).filter(Char::isDigit) }
+    SecurePanel("Apna 6-digit PIN Banaye", "Raw PIN kabhi save nahi hoga") {
+        SecurePinField("Naya PIN", pin) { pin = it.digitsOnly() }
+        SecurePinField("PIN Dobara", confirm) { confirm = it.digitsOnly() }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(
             onClick = {
-                error = when {
-                    pin.length != 6 -> "PIN 6 digit ka hona chahiye"
-                    pin != confirm -> "Dono PIN match nahi kar rahe"
-                    pin.toSet().size == 1 -> "Ek hi digit wala PIN allowed nahi hai"
-                    pin in setOf("123456", "654321", "121212", "112233") -> "Ye PIN bahut aasaan hai"
-                    else -> null
-                }
+                error = validatePinUi(pin, confirm)
                 if (error == null) onSave(pin)
             },
             modifier = Modifier.fillMaxWidth(),
@@ -137,15 +130,15 @@ private fun PinUnlockScreen(
     var pin by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("PIN daalein") }
 
-    SecurePanel(title = "Girvi Khata Unlock Kare", subtitle = message) {
-        SecurePinField("6-digit PIN", pin) { pin = it.take(6).filter(Char::isDigit) }
+    SecurePanel("Girvi Khata Unlock Kare", message) {
+        SecurePinField("6-digit PIN", pin) { pin = it.digitsOnly() }
         Button(
             onClick = {
                 when (val result = onVerify(pin)) {
                     PinVerificationResult.Success -> onUnlocked()
                     PinVerificationResult.NotConfigured -> message = "PIN setup nahi mila"
-                    is PinVerificationResult.Locked -> message = "Security lock active hai. Thodi der baad try karein."
-                    is PinVerificationResult.Failure -> message = "Galat PIN. Failed attempts: ${result.attempts}"
+                    is PinVerificationResult.Locked -> message = "Security lock active hai. Baad mein try karein."
+                    is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
                 }
                 pin = ""
             },
@@ -156,8 +149,18 @@ private fun PinUnlockScreen(
     }
 }
 
+private fun String.digitsOnly(): String = take(6).filter(Char::isDigit)
+
+private fun validatePinUi(pin: String, confirm: String): String? = when {
+    pin.length != 6 -> "PIN 6 digit ka hona chahiye"
+    pin != confirm -> "Dono PIN match nahi kar rahe"
+    pin.toSet().size == 1 -> "Ek hi digit wala PIN allowed nahi hai"
+    pin in setOf("123456", "654321", "121212", "112233") -> "Ye PIN bahut aasaan hai"
+    else -> null
+}
+
 @Composable
-private fun SecurePanel(title: String, subtitle: String, content: @Composable Column.() -> Unit) {
+private fun SecurePanel(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(GirviNavy).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -172,11 +175,15 @@ private fun SecurePanel(title: String, subtitle: String, content: @Composable Co
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
         ) {
-            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(title, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = Color.Gray)
-                content()
-            }
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                content = {
+                    Text(title, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Text(subtitle, color = Color.Gray)
+                    content()
+                },
+            )
         }
     }
 }
@@ -211,7 +218,7 @@ private fun MainShell(onLock: () -> Unit) {
     ) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
-                AppTab.HOME -> DashboardScreen(onOpenCustomers = { tab = AppTab.CUSTOMERS })
+                AppTab.HOME -> DashboardScreen { tab = AppTab.CUSTOMERS }
                 AppTab.CUSTOMERS -> CustomersScreen()
                 AppTab.GIRVI -> GirviListScreen()
                 AppTab.MASTERS -> MastersScreen()
@@ -222,7 +229,13 @@ private fun MainShell(onLock: () -> Unit) {
 }
 
 @Composable
-private fun NavItem(tab: AppTab, selected: AppTab, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: (AppTab) -> Unit) {
+private fun RowScope.NavItem(
+    tab: AppTab,
+    selected: AppTab,
+    label: String,
+    icon: ImageVector,
+    onClick: (AppTab) -> Unit,
+) {
     NavigationBarItem(
         selected = tab == selected,
         onClick = { onClick(tab) },
@@ -233,7 +246,7 @@ private fun NavItem(tab: AppTab, selected: AppTab, label: String, icon: androidx
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppPage(title: String, content: @Composable Column.() -> Unit) {
+private fun AppPage(title: String, content: @Composable ColumnScope.() -> Unit) {
     Scaffold(
         containerColor = ScreenBackground,
         topBar = {
@@ -277,16 +290,27 @@ private fun DashboardScreen(onOpenCustomers: () -> Unit) = AppPage("Dashboard") 
         StatCard("Received", "₹0", Modifier.weight(1f))
         StatCard("Due", "0", Modifier.weight(1f))
     }
-    StatusBanner("PIN security active • business records abhi sirf device par")
+    StatusBanner("PIN security active • business records sirf device par")
 }
 
 @Composable
 private fun CustomersScreen() = AppPage("Customers") {
     val customers = remember { mutableStateListOf("Ramesh Bhuriya", "Mahesh Patel", "Suresh Kumar") }
     var query by rememberSaveable { mutableStateOf("") }
-    OutlinedTextField(query, { query = it }, label = { Text("Naam ya mobile search karein") }, modifier = Modifier.fillMaxWidth(), leadingIcon = { Icon(Icons.Default.Search, null) })
-    Button(onClick = { customers.add("Naya Customer ${customers.size + 1}") }, modifier = Modifier.fillMaxWidth()) {
-        Icon(Icons.Default.Add, null); Spacer(Modifier.size(8.dp)); Text("Naya Customer")
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        label = { Text("Naam ya mobile search karein") },
+        leadingIcon = { Icon(Icons.Default.Search, null) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Button(
+        onClick = { customers.add("Naya Customer ${customers.size + 1}") },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(Icons.Default.Add, null)
+        Spacer(Modifier.size(8.dp))
+        Text("Naya Customer")
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(customers.filter { it.contains(query, ignoreCase = true) }) { name ->
@@ -297,9 +321,15 @@ private fun CustomersScreen() = AppPage("Customers") {
 
 @Composable
 private fun GirviListScreen() = AppPage("Girvi Records") {
-    StatusBanner("Naya Girvi wizard agle implementation block mein real domain engine se connect hoga")
-    Button(onClick = {}, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = GirviPurple)) {
-        Icon(Icons.Default.Add, null); Spacer(Modifier.size(8.dp)); Text("Naya Girvi")
+    StatusBanner("Naya Girvi wizard ko agle block mein real engine se connect kiya jayega")
+    Button(
+        onClick = {},
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = GirviPurple),
+    ) {
+        Icon(Icons.Default.Add, null)
+        Spacer(Modifier.size(8.dp))
+        Text("Naya Girvi")
     }
     ListCard("Active Girvi", "Abhi koi record nahi")
     ListCard("Due Accounts", "Abhi koi due record nahi")
@@ -318,26 +348,42 @@ private fun MastersScreen() = AppPage("Apni Lists") {
 
 @Composable
 private fun MoreScreen(onLock: () -> Unit) = AppPage("Security & Settings") {
-    ListCard("Backup Status", "Google Drive encrypted backup abhi integration pending")
+    ListCard("Backup Status", "Google Drive encrypted backup integration pending")
     ListCard("Privacy", "No central business database")
     ListCard("Security", "Salted PIN verifier + progressive lockout active")
-    Button(onClick = onLock, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = GirviNavy)) {
-        Icon(Icons.Default.Lock, null); Spacer(Modifier.size(8.dp)); Text("App Lock Karein")
+    Button(
+        onClick = onLock,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = GirviNavy),
+    ) {
+        Icon(Icons.Default.Lock, null)
+        Spacer(Modifier.size(8.dp))
+        Text("App Lock Karein")
     }
 }
 
 @Composable
 private fun SearchCard(text: String, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+    ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Search, null, tint = GirviPurple); Spacer(Modifier.size(10.dp)); Text(text, color = Color.Gray)
+            Icon(Icons.Default.Search, null, tint = GirviPurple)
+            Spacer(Modifier.size(10.dp))
+            Text(text, color = Color.Gray)
         }
     }
 }
 
 @Composable
 private fun ActionCard(title: String, subtitle: String, modifier: Modifier) {
-    Card(modifier.height(100.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(
+        modifier = modifier.height(100.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+    ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.Center) {
             Text(title, fontWeight = FontWeight.Bold, color = GirviNavy)
             Text(subtitle, color = Color.Gray, fontSize = 12.sp)
