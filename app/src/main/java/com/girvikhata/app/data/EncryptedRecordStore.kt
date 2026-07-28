@@ -11,11 +11,10 @@ import java.io.File
 import java.util.UUID
 
 /**
- * Small encrypted snapshot store for the first testing milestones.
+ * Encrypted snapshot store used during testing milestones.
  *
- * Business records are serialized in memory, encrypted with AES-GCM through Android Keystore,
- * and only ciphertext is written to app-private storage. This is intentionally replaceable by
- * an encrypted relational database once migrations and backup integration are ready.
+ * The binary envelope stays at format v1 while the JSON schema is versioned independently.
+ * Schema v2 adds multiple items per girvi and remains backward-compatible with Alpha 2 data.
  */
 class EncryptedRecordStore(
     context: Context,
@@ -44,7 +43,7 @@ class EncryptedRecordStore(
 
     @Synchronized
     fun save(snapshot: AppSnapshot) {
-        val plaintext = encode(snapshot).toByteArray(Charsets.UTF_8)
+        val plaintext = encode(snapshot.copy(schemaVersion = CURRENT_SCHEMA)).toByteArray(Charsets.UTF_8)
         val encrypted = keyManager.encrypt(plaintext, associatedData = ASSOCIATED_DATA)
         val temporary = File(file.parentFile, "$FILE_NAME.tmp")
         DataOutputStream(temporary.outputStream().buffered()).use { output ->
@@ -95,6 +94,19 @@ class EncryptedRecordStore(
                     put("monthlyRateBasisPoints", girvi.monthlyRateBasisPoints)
                     put("createdAt", girvi.createdAt)
                     put("status", girvi.status)
+                    put("items", JSONArray().apply {
+                        girvi.effectiveItems.forEach { item ->
+                            put(JSONObject().apply {
+                                put("id", item.id)
+                                put("categoryName", item.categoryName)
+                                put("itemName", item.itemName)
+                                put("quantity", item.quantity)
+                                put("grossWeightGrams", item.grossWeightGrams)
+                                put("deductionWeightGrams", item.deductionWeightGrams)
+                                put("description", item.description)
+                            })
+                        }
+                    })
                 })
             }
         })
@@ -106,7 +118,7 @@ class EncryptedRecordStore(
         val categories = root.optJSONArray("categories") ?: JSONArray()
         val girvis = root.optJSONArray("girvis") ?: JSONArray()
         return AppSnapshot(
-            schemaVersion = root.optInt("schemaVersion", 1),
+            schemaVersion = CURRENT_SCHEMA,
             customers = List(customers.length()) { index ->
                 customers.getJSONObject(index).run {
                     CustomerRecord(
@@ -129,18 +141,46 @@ class EncryptedRecordStore(
             },
             girvis = List(girvis.length()) { index ->
                 girvis.getJSONObject(index).run {
+                    val legacyCategory = optString("categoryName")
+                    val legacyItem = optString("itemName")
+                    val legacyWeight = optString("weightGrams")
+                    val itemArray = optJSONArray("items")
+                    val decodedItems = if (itemArray != null && itemArray.length() > 0) {
+                        List(itemArray.length()) { itemIndex ->
+                            itemArray.getJSONObject(itemIndex).run {
+                                GirviItemRecord(
+                                    id = optString("id", UUID.randomUUID().toString()),
+                                    categoryName = optString("categoryName", legacyCategory),
+                                    itemName = optString("itemName", legacyItem),
+                                    quantity = optInt("quantity", 1),
+                                    grossWeightGrams = optString("grossWeightGrams", legacyWeight),
+                                    deductionWeightGrams = optString("deductionWeightGrams"),
+                                    description = optString("description"),
+                                )
+                            }
+                        }
+                    } else {
+                        listOf(
+                            GirviItemRecord(
+                                categoryName = legacyCategory,
+                                itemName = legacyItem,
+                                grossWeightGrams = legacyWeight,
+                            ),
+                        )
+                    }
                     GirviRecord(
                         id = getString("id"),
                         girviNumber = getString("girviNumber"),
                         customerId = getString("customerId"),
                         customerName = getString("customerName"),
-                        categoryName = getString("categoryName"),
-                        itemName = getString("itemName"),
-                        weightGrams = optString("weightGrams"),
+                        categoryName = legacyCategory.ifBlank { decodedItems.firstOrNull()?.categoryName.orEmpty() },
+                        itemName = legacyItem.ifBlank { decodedItems.firstOrNull()?.itemName.orEmpty() },
+                        weightGrams = legacyWeight.ifBlank { decodedItems.firstOrNull()?.grossWeightGrams.orEmpty() },
                         principalPaise = getLong("principalPaise"),
                         monthlyRateBasisPoints = getInt("monthlyRateBasisPoints"),
                         createdAt = getLong("createdAt"),
                         status = optString("status", "ACTIVE"),
+                        items = decodedItems,
                     )
                 }
             },
@@ -151,12 +191,13 @@ class EncryptedRecordStore(
         private const val FILE_NAME = "business_records_v1.bin"
         private const val MAGIC = 0x474B5631
         private const val FORMAT_VERSION = 1
+        private const val CURRENT_SCHEMA = 2
         private val ASSOCIATED_DATA = "girvi-khata-local-store-v1".toByteArray(Charsets.UTF_8)
     }
 }
 
 data class AppSnapshot(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val customers: List<CustomerRecord> = emptyList(),
     val categories: List<CategoryRecord> = emptyList(),
     val girvis: List<GirviRecord> = emptyList(),
@@ -187,6 +228,16 @@ data class CategoryRecord(
     val active: Boolean = true,
 )
 
+data class GirviItemRecord(
+    val id: String = UUID.randomUUID().toString(),
+    val categoryName: String,
+    val itemName: String,
+    val quantity: Int = 1,
+    val grossWeightGrams: String = "",
+    val deductionWeightGrams: String = "",
+    val description: String = "",
+)
+
 data class GirviRecord(
     val id: String = UUID.randomUUID().toString(),
     val girviNumber: String,
@@ -199,4 +250,16 @@ data class GirviRecord(
     val monthlyRateBasisPoints: Int,
     val createdAt: Long = System.currentTimeMillis(),
     val status: String = "ACTIVE",
-)
+    val items: List<GirviItemRecord> = emptyList(),
+) {
+    val effectiveItems: List<GirviItemRecord>
+        get() = items.ifEmpty {
+            listOf(
+                GirviItemRecord(
+                    categoryName = categoryName,
+                    itemName = itemName,
+                    grossWeightGrams = weightGrams,
+                ),
+            )
+        }
+}
