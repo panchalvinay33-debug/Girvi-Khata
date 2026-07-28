@@ -5,7 +5,7 @@
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
-        android:label="Girvi Khata"
+        android:label="${appLabel}"
         android:supportsRtl="true"
         android:theme="@style/Theme.GirviKhata">
 
