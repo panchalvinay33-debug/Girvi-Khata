@@ -33,9 +33,27 @@ For every APK, test in this order:
 
 ### v0.1.0-alpha.1
 
-Status: BUILD IN PROGRESS
+Status: VERIFIED TESTING BUILD
 
-Planned scope:
+Build source:
+
+- Commit: `a9037dbab10af729a6ed2c298a47fc74e250c09d`
+- Workflow run: `30374188211`
+- Artifact ID: `8694333535`
+- APK size: `19,631,697 bytes`
+- APK SHA-256: `09b2ee05518e17654f9f5e81a75eadc76d43c1f0a6642573a572bc179c143c9c`
+
+Verification completed:
+
+- Android unit tests passed.
+- Debug APK compilation passed.
+- Artifact upload passed.
+- Security Guard passed.
+- Downloaded artifact contained one APK.
+- APK ZIP structure integrity test reported no errors.
+- File identified as a valid Android package.
+
+Included scope:
 
 - PIN enrollment and verification.
 - Progressive failed-attempt lockout.
