@@ -36,6 +36,40 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      - name: Restore stable testing keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.girvi-testing-signing
+          key: girvi-testing-signing-v1
+
+      - name: Prepare stable testing signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIGNING_DIR="$HOME/.girvi-testing-signing"
+          mkdir -p "$SIGNING_DIR"
+
+          if [ ! -f "$SIGNING_DIR/testing.keystore" ]; then
+            STORE_PASSWORD="$(openssl rand -hex 24)"
+            KEY_PASSWORD="$(openssl rand -hex 24)"
+            printf '%s' "$STORE_PASSWORD" > "$SIGNING_DIR/store-password"
+            printf '%s' "$KEY_PASSWORD" > "$SIGNING_DIR/key-password"
+            keytool -genkeypair \
+              -keystore "$SIGNING_DIR/testing.keystore" \
+              -storepass "$STORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -alias girvi-testing \
+              -keyalg RSA \
+              -keysize 3072 \
+              -validity 3650 \
+              -dname "CN=Girvi Khata Testing, O=Girvi Khata, C=IN"
+          fi
+
+          echo "GIRVI_TEST_KEYSTORE=$SIGNING_DIR/testing.keystore" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_STORE_PASSWORD=$(cat "$SIGNING_DIR/store-password")" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_KEY_PASSWORD=$(cat "$SIGNING_DIR/key-password")" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_KEY_ALIAS=girvi-testing" >> "$GITHUB_ENV"
+
       - name: Run unit tests
         shell: bash
         run: |
@@ -51,7 +85,7 @@ jobs:
       - name: Upload testing APK
         uses: actions/upload-artifact@v4
         with:
-          name: girvi-khata-debug-apk
+          name: girvi-khata-testing-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
