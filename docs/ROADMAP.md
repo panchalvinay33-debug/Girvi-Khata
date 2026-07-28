@@ -10,107 +10,72 @@ A private, offline-first, single-owner digital girvi ledger. Business records st
 
 - [x] Dedicated repository created
 - [x] Product privacy boundary documented
-- [x] Progress ledger created
-- [x] Backup blueprint created
-- [x] Decision log created
+- [x] Progress ledger, backup blueprint, decision log, and security policy
+- [x] Repository secret/production-file security guard
 - [ ] Repository visibility changed to Private
 - [ ] Branch protection and review rules enabled
 - [ ] Android project builds in CI
 
 ## Phase 1 — App shell and security entry
 
-- [x] Kotlin/Compose project scaffold
-- [x] Material theme foundation
-- [x] Initial navigation shell
-- [x] App lock UI prototype
-- [ ] Secure PIN enrollment
-- [ ] PIN verification with attempt throttling
-- [ ] Biometric unlock
+- [x] Kotlin/Compose scaffold, theme, navigation, lock/dashboard prototypes
+- [x] Secure PIN hashing and progressive attempt throttling domain
+- [x] Android Keystore AES-GCM key manager
+- [ ] PIN enrollment UI and encrypted persistence
+- [ ] Biometric unlock wiring
 - [ ] App background privacy screen
-- [ ] Android Keystore key manager
 
 ## Phase 2 — Shop customization
 
-- [ ] Shop profile
-- [ ] Custom category master
-- [ ] Custom item master
-- [ ] Manual item add and optional permanent save
-- [ ] Custom units
-- [ ] Category-specific custom fields
-- [ ] Custom payment modes
-- [ ] Interest-plan master
+- [x] Shop, custom category, item-master, unit, custom-field, payment-mode, and interest-plan models
+- [x] List item plus manual-item path
+- [ ] Persistent repository implementation
+- [ ] Compose management screens
 
 ## Phase 3 — Customer and girvi records
 
-- [ ] Customer create/edit/search
-- [ ] Customer photo and optional documents
-- [ ] Multiple items in one girvi
-- [ ] Weight, quantity, condition, description
-- [ ] Item and weighing-scale photographs
-- [ ] Loan amount and transaction metadata
-- [ ] Review and save flow
-- [ ] Girvi number generation
+- [x] Customer domain and validation
+- [x] Multiple items, weight, quantity, condition, description, and media-vault IDs
+- [x] Loan metadata and deterministic girvi numbering
+- [x] Offline repository contracts
+- [ ] Room entities and DAOs
+- [ ] Customer screens and new-girvi wizard
 
 ## Phase 4 — Calculation engine
 
-- [ ] Simple monthly interest
-- [ ] Daily and yearly interest
-- [ ] Fixed monthly/period interest
-- [ ] Compound interest with custom interval
-- [ ] Partial-month rules
-- [ ] Grace periods
-- [ ] Rounding rules
-- [ ] Manual adjustment without overwriting original calculation
-- [ ] Period-wise transparent breakup
-- [ ] Automated calculation tests
+- [x] Simple monthly, daily, yearly, fixed, and compound interest
+- [x] Partial-month rules, grace periods, rounding, and manual adjustments
+- [x] Period-wise transparent breakup
+- [x] Automated calculation tests authored
+- [ ] Full build execution and expanded edge-case suite
 
 ## Phase 5 — Payments and release
 
-- [ ] Interest-only payment
-- [ ] Principal-only payment
-- [ ] Mixed and partial payment
-- [ ] Configurable allocation priority
-- [ ] Reversal transactions
-- [ ] Full settlement
-- [ ] Secure item-release checklist
-- [ ] Final receipt
-- [ ] Immediate critical backup trigger
+- [x] Interest-first, principal-first, and validated custom allocation
+- [x] Payment and reversal domain invariants
+- [ ] Persistent posting transaction
+- [ ] Settlement, secure release checklist, and final receipt
+- [ ] Critical backup trigger implementation
 
 ## Phase 6 — Search, reports, and receipts
 
-- [ ] Fast local search
-- [ ] Customer profile and ledger
-- [ ] Active, due, and closed girvi views
-- [ ] Daily/monthly reports
-- [ ] Principal and interest reports
-- [ ] PDF receipts
-- [ ] Protected exports with cleanup
+- [x] Local search repository contracts
+- [ ] Customer ledger and active/due/closed screens
+- [ ] Reports, PDF receipts, and protected exports
 
 ## Phase 7 — Encrypted Google Drive backup
 
-- [ ] Google account authorization
-- [ ] Minimum Drive scope
-- [ ] Client-side encrypted backup package
-- [ ] Versioned backup retention
-- [ ] Upload and read-back verification
-- [ ] Integrity hashes and manifest
-- [ ] Automatic WorkManager backup
-- [ ] Manual backup
-- [ ] Same-account restore
-- [ ] Recovery-passphrase flow
-- [ ] Corruption and Drive-full handling
+- [x] Backup trigger/state/manifest and restore-result contracts
+- [x] Verified-backup success definition
+- [ ] Google authorization and minimum Drive scope
+- [ ] Encrypted package, retention, upload/read-back/hash verification
+- [ ] WorkManager scheduling and recovery UI
 
-## Phase 8 — Hardening and real-world testing
+## Phase 8 — Hardening and testing
 
-- [ ] No sensitive data in logs
-- [ ] No secrets in repository or APK resources
-- [ ] Database migration tests
-- [ ] App uninstall/new-device restore test
-- [ ] Offline and low-storage tests
-- [ ] Large dummy dataset tests
-- [ ] Root/compromised-device warning
-- [ ] Security checklist completed
-- [ ] Pilot shop testing
+- [x] Logging/secrets policy, forbidden-file checks, and Android backup exclusion
+- [ ] Database migration, uninstall/restore, offline, low-storage, and large-data tests
+- [ ] Root warning, security checklist, and pilot testing
 
 ## Out of scope for first stable release
 
