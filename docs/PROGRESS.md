@@ -89,23 +89,6 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ⚠️ This snapshot store is an interim persistence layer. It will be migrated to a transaction-safe encrypted relational store before production use.
 - ⚠️ Google Drive backup/restore is not yet active.
 
-### Validation status
-
-- ✅ Android build and Security Guard passed for the first Alpha 2 artifact.
-- ⚠️ Physical install exposed a package-signature conflict with Alpha 1 because CI used a new temporary debug key.
-- 🧪 Replacement Alpha 2 testing APK required after signing fix.
-
-### Next concrete work
-
-- ⏳ Verify stable testing package/signing build in CI.
-- ⏳ Produce replacement Alpha 2 APK.
-- ⏳ Test create girvi, close/reopen app, unlock, and verify customer/girvi remains.
-- ⏳ Add edit/deactivate flows for categories.
-- ⏳ Add customer selection instead of name-only matching.
-- ⏳ Add multiple items per girvi and detailed calculation screen.
-- ⏳ Add lifecycle auto-lock and biometric unlock.
-- ⏳ Add transaction-safe encrypted relational persistence and migrations.
-
 ## 2026-07-28 — Mandatory test-before-merge process
 
 - ✅ Owner confirmed that every milestone will be tested separately before merging.
@@ -115,8 +98,6 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ✅ Roadmap updated with the branch → APK → owner test → fix → approval → merge gate.
 - ✅ Every milestone must update roadmap, progress, decisions, testing releases, and the backup blueprint when data/security/backup behavior changes.
 - ✅ Large new ideas will be recorded as future milestones instead of silently expanding the current test scope.
-- ⏳ Alpha 1 approved baseline must be merged into `main` before the next independent milestone branch is finalized.
-- 🧪 Encrypted-persistence work will receive a separate Alpha 2 APK and physical-device test before merge.
 
 ## 2026-07-28 — Stable testing installation fix
 
@@ -126,7 +107,25 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ✅ CI now creates one random non-production testing key and retains it in a fixed GitHub Actions cache.
 - ✅ Future testing APKs reuse the same package and signing identity, allowing direct upgrades while preserving PIN and encrypted local data.
 - ✅ Production package and production release signing remain separate and are not stored in source control.
-- 🧪 First stable-signing testing APK must be installed once; all later testing APKs should upgrade it directly.
+
+## 2026-07-28 — Alpha 2 owner approval and next milestone foundation
+
+- ✅ Owner installed the corrected permanent testing package successfully.
+- ✅ PIN, category creation, girvi creation, dashboard totals, search, listing, lock/unlock, app restart, and encrypted record persistence were physically tested and approved.
+- ✅ Alpha 2 fixed is now the owner-approved testing baseline.
+- ✅ Encrypted snapshot schema upgraded from v1 to v2 while keeping Alpha 2 records readable.
+- ✅ Multiple-item record structure added with legacy single-item migration fallback.
+- ✅ Item validation now covers quantity, gross weight, deduction, and net weight.
+- ✅ Customer matching now prefers normalized exact mobile and falls back to normalized name.
+- ✅ Customer search now supports name, mobile, and address.
+- ✅ Girvi numbering now scans the highest sequence for the current date instead of relying on total record count.
+- ✅ Transparent month-wise simple-interest breakup added.
+- ✅ Category deactivate safety rule blocks deactivation while an active girvi uses that category.
+- ✅ Session auto-lock timeout policy added with clock-rollback protection.
+- ✅ Biometric hardware/enrollment capability layer added; prompt wiring remains pending.
+- ✅ New automated tests added for customer matching, searching, multiple-item validation, numbering, calculation breakup, category safety, and session locking.
+- 🚧 Android CI and Security Guard validation are running for this milestone.
+- ⏳ Next visible wiring: customer picker, multi-item editor, calculation detail screen, category activate/deactivate controls, lifecycle auto-lock, and biometric prompt.
 
 ## Update rule
 
