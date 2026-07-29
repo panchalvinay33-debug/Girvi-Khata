@@ -9,6 +9,59 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling, and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.9.0-alpha.9
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+Build source:
+
+- Commit: `9d31f06c7a5517da3f3afbbb9b1f5435e2c6c9bd`
+- Android workflow run: `30480566880`
+- Security Guard run: `30480566699`
+- Artifact ID: `8735582885`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `9` / `0.9.0-testing`
+- APK size: `20,025,854 bytes`
+- APK SHA-256: `698dda752567b1f4f3e28500d95c8c3e21f7e2bd61ed09bb818a15b7145eeb17`
+
+Verified scope:
+
+- Customer khata now opens a full profile view with saved mobile and address.
+- Customer name, mobile, and address can be edited and persist in the encrypted store.
+- Customer-name edits propagate to linked girvi display names while IDs and accounting links remain unchanged.
+- Duplicate normalized mobile numbers are rejected.
+- Customer deletion is enabled only for customers with no active or released girvi history.
+- Girvi-history customers remain protected from deletion.
+- Collection reports add Android date pickers for exact custom From/To dates.
+- Custom From dates begin at local midnight and To dates include the complete final day through 23:59:59.999.
+- Today, 7-day, 30-day, all-time, CSV share, receipt share, reports, backup, restore, and PIN recovery remain present.
+
+Owner physical-test checklist:
+
+1. Install over Alpha 8 without uninstalling.
+2. Confirm the PIN recovery/new PIN from Alpha 8 still works.
+3. Confirm existing customers, girvi, payments, reports, backup and restore remain.
+4. Open `Girvi Tools Test` → Reports → Khata.
+5. Select a customer and edit name, mobile, and address.
+6. Close and reopen Reports; edits must persist.
+7. Confirm linked girvi rows show the updated customer name.
+8. Try assigning a mobile number already used by another customer; save must be rejected.
+9. Confirm a customer with any girvi history cannot be deleted.
+10. Create an unused customer in the main app and confirm only that customer can be deleted from Khata.
+11. In Collections choose Custom Date Range and select exact From/To dates.
+12. Confirm receipts from the final selected day are included.
+13. Select From after To and confirm the range is rejected/returns no destructive behavior.
+14. Share the custom-range CSV and open it in Sheets/Excel.
+15. Check scrolling, keyboard overlap, dialog clipping and app restart persistence.
+
+Known limitations:
+
+- Alpha 8 PIN recovery and verified restore still require owner physical confirmation.
+- Main app and Tools remain two launcher entries inside one package.
+- Customer create remains in the main girvi flow; Alpha 9 adds edit/delete to Reports Khata.
+- Privacy screenshot/recent-app blocking is still pending app-wide.
+- Google Drive automatic backup and the final transactional encrypted relational database remain pending.
+
 ## v0.8.0-alpha.8-pin-recovery
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
@@ -44,24 +97,6 @@ Verified restore scope:
 - Encrypted local-store save followed by read-back count verification.
 - Wrong passphrase, damaged file, unsupported schema, or malformed data fails before existing records are modified.
 
-Owner physical-test checklist:
-
-1. Install directly over Alpha 7 without uninstalling.
-2. First try the old PIN in `Girvi Khata Test` and record the exact result.
-3. Open `Girvi Tools Test` and choose `Purana PIN Kaam Nahi Kar Raha`.
-4. Authenticate with fingerprint or the phone screen lock.
-5. Set a new non-weak 6-digit PIN and confirm it.
-6. Open the main app with the new PIN.
-7. Verify all existing customers, girvi, categories, payments, reversals, released records, and report totals remain.
-8. Create a fresh `.gkb` backup and save it outside the app.
-9. Add one temporary test customer/girvi so the current data differs from the backup.
-10. Open Restore, enter a wrong passphrase, and confirm current data remains unchanged.
-11. Enter the correct passphrase and verify the preview counts/checksum.
-12. Confirm restore only after checking the counts.
-13. Reopen the main app and confirm the temporary post-backup record is gone while backed-up records are restored.
-14. Verify PIN recovery does not change the backup recovery passphrase and restore does not change the app PIN.
-15. Report any crash, clipped screen, keyboard overlap, incorrect count, authentication failure, or data mismatch screenshot.
-
 Known limitations:
 
 - Root cause of the owner's Alpha 7 stored-verifier failure cannot be proven remotely from source alone; Alpha 8 adds a safe recovery path and stronger verifier validation.
@@ -74,66 +109,25 @@ Known limitations:
 
 **Status: SUPERSEDED — OWNER REPORTED PREVIOUS PIN NOT ACCEPTED**
 
-Build source:
-
 - Commit: `e87ec9b252e0f2470eddbc7408abb694d48c0bb1`
 - Android workflow run: `30426181772`
 - Security Guard run: `30426181774`
 - Artifact ID: `8713757434`
-- Package: `com.girvikhata.app.testing`
 - Version code/name: `7` / `0.7.0-testing`
-- APK size: `19,960,258 bytes`
 - APK SHA-256: `5f87cf94b8bf10331e153b1cfbf7a0e568498c96fde93bc83901d02a12581177`
-
-Verified build scope:
-
-- Existing `Girvi Reports Test` launcher entry replaced by `Girvi Tools Test`.
-- PIN-protected Tools hub with Reports and Encrypted Backup entries.
-- Complete snapshot serializer includes customers, categories, girvi items, payments, reversals, release metadata, and adjustments.
-- Visible recovery-passphrase backup creation and secure Android share flow.
-- Portable AES-256-GCM package with PBKDF2-HMAC-SHA256 recovery key derivation.
-- App-private temporary `.gkb` file with read-only FileProvider sharing.
-
-Owner result:
-
-- Existing previously configured PIN was not accepted on the physical device.
-- Alpha 7 must not be used as the approved baseline.
-- Superseded by Alpha 8 with data-preserving authenticated PIN recovery and verified restore.
+- Existing previously configured PIN was not accepted on the physical device; superseded by Alpha 8.
 
 ## v0.4.0-alpha.4
 
 **Status: VERIFIED TESTING BUILD — OWNER APPROVED**
-
-Owner confirmation: installed and tested successfully; work may continue from this encrypted payment-ledger baseline.
-
-Build source:
 
 - Commit: `6d39fbd6dec11204e340e40284659993faa612d5`
 - Workflow run: `30412018790`
 - Artifact ID: `8708824816`
 - Package: `com.girvikhata.app.testing`
 - Version code/name: `4` / `0.4.0-testing`
-- APK size: `19,844,926 bytes`
 - APK SHA-256: `6bb19e1eefd2192fac811616db891f55cd8ac889e18937c1cbb9ac4012eb2306`
-
-Verified scope:
-
-- Direct upgrade with stable testing signature.
-- Encrypted schema v3 with backward-compatible Alpha 2/3 defaults.
-- Payment receive flow with interest-first, principal-first, and custom allocation.
-- Cash, UPI, and bank modes; payment notes and automatic receipt numbering.
-- Immutable payment history and linked reversal entries.
-- Settlement totals and outstanding-release protection.
-- Explicit owner override with mandatory release note.
-- Dashboard payment/released totals.
-- Modular `MainActivity` and `AppRoot` structure.
-
-Known limitations at approval:
-
-- Persistence is still the encrypted snapshot store, not the final transactional database.
-- Reports/customer statements and shareable receipt files are not yet visible in the app.
-- Google Drive backup/restore is not active.
-- Production PDF/thermal printing is pending.
+- Payment receive, allocation, reversal, release, encrypted schema v3, and dashboard payment/release totals owner-approved.
 
 ## v0.3.0-alpha.3
 
@@ -142,9 +136,7 @@ Known limitations at approval:
 - Commit: `2fded9557a039714c07c01ccb058af0c9f3bcfed`
 - Workflow run: `30387546934`
 - Artifact ID: `8699655919`
-- Version code/name: `3` / `0.3.0-testing`
 - APK SHA-256: `f8d76b01c23de35fc10c1c8c0348fd9137f5eba9a227a8d16290fc07bb3042ce`
-- Added existing-customer picker, multiple items, detailed interest view, category activation safety, fingerprint unlock, and 30-second background auto-lock.
 
 ## v0.2.0-alpha.2-fixed
 
@@ -155,7 +147,6 @@ Known limitations at approval:
 - Artifact ID: `8698642645`
 - Package: `com.girvikhata.app.testing`
 - APK SHA-256: `ac923b42ffa2968ad3a95a60075814f57a26cde932ac7d549cbab3305748c63f`
-- Established the permanent testing package/signature and encrypted customer/category/girvi persistence baseline.
 
 ## v0.2.0-alpha.2
 
@@ -171,4 +162,3 @@ Used the original package with a different ephemeral debug key. Replaced by `v0.
 - Workflow run: `30374188211`
 - Artifact ID: `8694333535`
 - APK SHA-256: `09b2ee05518e17654f9f5e81a75eadc76d43c1f0a6642573a572bc179c143c9c`
-- Added PIN enrollment/unlock, lockout, dashboard/navigation, and core calculation tests.
