@@ -20,9 +20,19 @@
         </provider>
 
         <activity
+            android:name=".BackupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ReportsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ToolsActivity"
             android:exported="true"
-            android:label="Girvi Reports Test"
+            android:label="Girvi Tools Test"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
