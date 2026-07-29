@@ -9,6 +9,56 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling, and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.7.0-alpha.7
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+Build source:
+
+- Commit: `e87ec9b252e0f2470eddbc7408abb694d48c0bb1`
+- Android workflow run: `30426181772`
+- Security Guard run: `30426181774`
+- Artifact ID: `8713757434`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `7` / `0.7.0-testing`
+- APK size: `19,960,258 bytes`
+- APK SHA-256: `5f87cf94b8bf10331e153b1cfbf7a0e568498c96fde93bc83901d02a12581177`
+
+Verified scope:
+
+- Existing `Girvi Reports Test` launcher entry replaced by `Girvi Tools Test`.
+- PIN-protected Tools hub with Reports and Encrypted Backup entries.
+- Complete snapshot serializer includes customers, categories, girvi items, payments, reversals, release metadata, and adjustments.
+- Visible recovery-passphrase backup creation and secure Android share flow.
+- Portable AES-256-GCM package with PBKDF2-HMAC-SHA256 recovery key derivation.
+- App-private temporary `.gkb` file with read-only FileProvider sharing.
+- Reports and Backup activities remain internal and are opened through the Tools hub.
+- Real JVM JSON implementation is test-only; it is not added as an APK runtime dependency.
+
+Owner physical-test checklist:
+
+1. Install directly over Alpha 6 without uninstalling.
+2. Confirm existing PIN, fingerprint, customers, categories, girvi, payments, and reports remain.
+3. Confirm launcher shows `Girvi Khata Test` and `Girvi Tools Test`; old `Girvi Reports Test` entry should be replaced.
+4. Open Tools and confirm Reports still shows correct totals.
+5. Open Encrypted Backup and verify PIN protection.
+6. Test incorrect PIN and correct PIN.
+7. Test weak recovery passphrase rejection.
+8. Test mismatched recovery-passphrase confirmation rejection.
+9. Create a backup with a strong passphrase containing letters and digits and at least 12 characters.
+10. Confirm backup summary counts customers, girvi, and payment-ledger entries correctly.
+11. Share/save the `.gkb` file through Drive, Files, email, or another selected app.
+12. Confirm the backup file is not readable as normal customer text.
+13. Close and reopen the app; existing records must remain unchanged.
+14. Report any crash, clipped screen, keyboard overlap, incorrect count, or failed sharing screenshot.
+
+Known limitations:
+
+- Restore/import UI is not yet enabled; Alpha 7 creates portable encrypted backups only.
+- Google Drive automatic upload, read-back verification, retention, and restore remain pending.
+- Main app and Tools currently remain two launcher entries inside the same package; final single-navigation refactor is pending.
+- Persistence remains the interim encrypted snapshot store rather than the final transactional encrypted relational database.
+
 ## v0.4.0-alpha.4
 
 **Status: VERIFIED TESTING BUILD — OWNER APPROVED**
