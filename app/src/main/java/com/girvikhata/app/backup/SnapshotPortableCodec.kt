@@ -1,11 +1,18 @@
 package com.girvikhata.app.backup
 
 import com.girvikhata.app.data.AppSnapshot
+import com.girvikhata.app.data.CategoryRecord
+import com.girvikhata.app.data.CustomerRecord
+import com.girvikhata.app.data.GirviItemRecord
+import com.girvikhata.app.data.GirviRecord
+import com.girvikhata.app.data.PaymentRecord
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Serializes the complete business snapshot before portable passphrase encryption. */
+/** Complete portable snapshot codec used before/after passphrase encryption. */
 object SnapshotPortableCodec {
+    private const val MAX_SUPPORTED_SCHEMA = 3
+
     fun encode(snapshot: AppSnapshot): ByteArray = JSONObject().apply {
         put("schemaVersion", snapshot.schemaVersion)
         put("customers", JSONArray().apply {
@@ -80,18 +87,125 @@ object SnapshotPortableCodec {
         })
     }.toString().toByteArray(Charsets.UTF_8)
 
-    fun inspect(payload: ByteArray): SnapshotInspection {
-        val root = JSONObject(String(payload, Charsets.UTF_8))
-        val schema = root.getInt("schemaVersion")
-        val customers = root.optJSONArray("customers")?.length() ?: 0
-        val categories = root.optJSONArray("categories")?.length() ?: 0
-        val girvis = root.optJSONArray("girvis") ?: JSONArray()
-        var payments = 0
-        for (index in 0 until girvis.length()) {
-            payments += girvis.getJSONObject(index).optJSONArray("payments")?.length() ?: 0
+    fun decode(payload: ByteArray): AppSnapshot {
+        require(payload.isNotEmpty()) { "Backup snapshot is empty" }
+        val root = runCatching { JSONObject(String(payload, Charsets.UTF_8)) }
+            .getOrElse { throw IllegalArgumentException("Backup snapshot JSON is damaged") }
+        val schema = root.optInt("schemaVersion", 0)
+        require(schema in 1..MAX_SUPPORTED_SCHEMA) { "Unsupported backup schema: $schema" }
+
+        val customersJson = root.optJSONArray("customers") ?: JSONArray()
+        val categoriesJson = root.optJSONArray("categories") ?: JSONArray()
+        val girvisJson = root.optJSONArray("girvis") ?: JSONArray()
+
+        val customers = List(customersJson.length()) { index ->
+            customersJson.getJSONObject(index).run {
+                CustomerRecord(
+                    id = requiredText("id"),
+                    name = requiredText("name"),
+                    mobile = optString("mobile"),
+                    address = optString("address"),
+                    createdAt = optLong("createdAt").also { require(it > 0) { "Invalid customer timestamp" } },
+                )
+            }
         }
-        return SnapshotInspection(schema, customers, categories, girvis.length(), payments)
+        require(customers.map { it.id }.distinct().size == customers.size) { "Duplicate customer IDs in backup" }
+
+        val categories = List(categoriesJson.length()) { index ->
+            categoriesJson.getJSONObject(index).run {
+                CategoryRecord(
+                    id = requiredText("id"),
+                    name = requiredText("name"),
+                    active = optBoolean("active", true),
+                )
+            }
+        }
+        require(categories.map { it.id }.distinct().size == categories.size) { "Duplicate category IDs in backup" }
+
+        val girvis = List(girvisJson.length()) { index ->
+            girvisJson.getJSONObject(index).run {
+                val itemsJson = optJSONArray("items") ?: JSONArray()
+                val items = List(itemsJson.length()) { itemIndex ->
+                    itemsJson.getJSONObject(itemIndex).run {
+                        GirviItemRecord(
+                            id = requiredText("id"),
+                            categoryName = requiredText("categoryName"),
+                            itemName = requiredText("itemName"),
+                            quantity = optInt("quantity", 1).also { require(it > 0) { "Invalid item quantity" } },
+                            grossWeightGrams = optString("grossWeightGrams"),
+                            deductionWeightGrams = optString("deductionWeightGrams"),
+                            description = optString("description"),
+                        )
+                    }
+                }
+                val paymentsJson = optJSONArray("payments") ?: JSONArray()
+                val payments = List(paymentsJson.length()) { paymentIndex ->
+                    paymentsJson.getJSONObject(paymentIndex).run {
+                        PaymentRecord(
+                            id = requiredText("id"),
+                            receiptNumber = requiredText("receiptNumber"),
+                            amountPaise = getLong("amountPaise"),
+                            principalPaise = getLong("principalPaise"),
+                            interestPaise = getLong("interestPaise"),
+                            chargesPaise = optLong("chargesPaise", 0L),
+                            mode = optString("mode", "CASH"),
+                            note = optString("note"),
+                            createdAt = getLong("createdAt").also { require(it > 0) { "Invalid payment timestamp" } },
+                            isReversal = optBoolean("isReversal", false),
+                            reversedPaymentId = nullableText("reversedPaymentId"),
+                        )
+                    }
+                }
+                val status = optString("status", "ACTIVE")
+                require(status == "ACTIVE" || status == "RELEASED") { "Invalid girvi status" }
+                GirviRecord(
+                    id = requiredText("id"),
+                    girviNumber = requiredText("girviNumber"),
+                    customerId = requiredText("customerId"),
+                    customerName = requiredText("customerName"),
+                    categoryName = requiredText("categoryName"),
+                    itemName = requiredText("itemName"),
+                    weightGrams = optString("weightGrams"),
+                    principalPaise = getLong("principalPaise").also { require(it > 0) { "Invalid principal" } },
+                    monthlyRateBasisPoints = getInt("monthlyRateBasisPoints").also { require(it >= 0) { "Invalid interest rate" } },
+                    createdAt = getLong("createdAt").also { require(it > 0) { "Invalid girvi timestamp" } },
+                    status = status,
+                    items = items,
+                    payments = payments,
+                    manualInterestAdjustmentPaise = optLong("manualInterestAdjustmentPaise", 0L),
+                    releasedAt = nullableLong("releasedAt"),
+                    releaseNote = optString("releaseNote"),
+                )
+            }
+        }
+        require(girvis.map { it.id }.distinct().size == girvis.size) { "Duplicate girvi IDs in backup" }
+        require(girvis.map { it.girviNumber }.distinct().size == girvis.size) { "Duplicate girvi numbers in backup" }
+        val customerIds = customers.map { it.id }.toSet()
+        require(girvis.all { it.customerId in customerIds }) { "Girvi references missing customer" }
+
+        return AppSnapshot(schemaVersion = schema, customers = customers, categories = categories, girvis = girvis)
     }
+
+    fun inspect(payload: ByteArray): SnapshotInspection {
+        val snapshot = decode(payload)
+        return SnapshotInspection(
+            schemaVersion = snapshot.schemaVersion,
+            customerCount = snapshot.customers.size,
+            categoryCount = snapshot.categories.size,
+            girviCount = snapshot.girvis.size,
+            paymentEntryCount = snapshot.girvis.sumOf { it.payments.size },
+        )
+    }
+
+    private fun JSONObject.requiredText(name: String): String = optString(name).trim().also {
+        require(it.isNotEmpty()) { "Missing $name in backup" }
+    }
+
+    private fun JSONObject.nullableText(name: String): String? =
+        if (!has(name) || isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
+
+    private fun JSONObject.nullableLong(name: String): Long? =
+        if (!has(name) || isNull(name)) null else getLong(name)
 }
 
 data class SnapshotInspection(
