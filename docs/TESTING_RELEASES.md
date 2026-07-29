@@ -9,9 +9,58 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling, and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
-## v0.9.0-alpha.9
+## v0.10.0-alpha.10
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+Build source:
+
+- Commit: `fad678462cf801e682acf6565fccf4978248fde7`
+- Android workflow run: `30482752429`
+- Security Guard run: `30482752531`
+- Artifact ID: `8736432865`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `10` / `0.10.0-testing`
+- APK size: `20,025,846 bytes`
+- APK SHA-256: `a50da4c6c678723f5d9b0284d8423d97af009823266564b0dbc11378e2f9ed60`
+
+Verified scope:
+
+- `MainActivity` is the only exported launcher activity.
+- The previous `Girvi Tools Test` launcher entry is removed; Tools remains an internal activity.
+- The main app contains a floating Settings/Tools button that opens Reports, Backup, Restore and PIN Recovery.
+- Tools remains reachable from the lock screen so authenticated PIN recovery is not blocked by an unusable PIN verifier.
+- Reports and Backup retain PIN verification; PIN recovery retains biometric/device-credential authentication.
+- A central `GirviKhataApplication` applies Android `FLAG_SECURE` to every activity window.
+- Screenshots, normal screen recording and readable recent-app previews should be blocked where the device honors `FLAG_SECURE`.
+- All unit tests, Android compilation, stable testing signing, APK packaging, artifact upload and Security Guard passed.
+
+Owner physical-test checklist:
+
+1. Install directly over Alpha 9 without uninstalling.
+2. Confirm existing PIN, customers, girvi, payments, reports, backup files and restore behavior remain.
+3. Confirm the launcher now shows only `Girvi Khata Test`; the old Tools icon should disappear after launcher refresh/restart.
+4. Open the main app and tap the floating Settings/Tools button.
+5. Confirm Reports, Encrypted Backup, Restore and PIN Recovery open from the Tools hub.
+6. Confirm Reports and Backup still reject a wrong PIN and accept the correct PIN.
+7. From the main lock screen, open Tools and confirm PIN Recovery still requires fingerprint/device credential.
+8. Attempt screenshots on lock, customer, girvi, report, backup and restore screens; capture should be blocked/blank according to device behavior.
+9. Open recent apps and confirm no readable customer/business data appears in the preview.
+10. Confirm the floating Tools button does not hide important save/payment/release controls.
+11. Return from Tools and verify the 30-second background auto-lock still works.
+12. Report duplicate icons, exposed previews, screenshot capture, missing Tools access, data loss, overlay obstruction or crashes.
+
+Known limitations:
+
+- Tools is opened as an internal activity from a floating button rather than rendered as a native bottom-navigation page; this minimizes regression risk while removing the second launcher icon.
+- OEM and accessibility capture behavior may differ, so privacy blocking requires physical-device confirmation.
+- Google Drive automatic backup and the final encrypted transactional database remain pending.
+
+## v0.9.0-alpha.9
+
+**Status: VERIFIED TESTING BUILD — OWNER APPROVED**
+
+Owner confirmation: testing completed successfully; development may continue from the customer-profile and custom-date baseline.
 
 Build source:
 
@@ -24,49 +73,20 @@ Build source:
 - APK size: `20,025,854 bytes`
 - APK SHA-256: `698dda752567b1f4f3e28500d95c8c3e21f7e2bd61ed09bb818a15b7145eeb17`
 
-Verified scope:
+Verified and approved scope:
 
-- Customer khata now opens a full profile view with saved mobile and address.
-- Customer name, mobile, and address can be edited and persist in the encrypted store.
-- Customer-name edits propagate to linked girvi display names while IDs and accounting links remain unchanged.
+- Customer khata profile with saved mobile/address and financial totals.
+- Customer name, mobile and address edits persist in encrypted storage.
+- Customer-name changes propagate to linked girvi display names without changing accounting IDs.
 - Duplicate normalized mobile numbers are rejected.
-- Customer deletion is enabled only for customers with no active or released girvi history.
-- Girvi-history customers remain protected from deletion.
-- Collection reports add Android date pickers for exact custom From/To dates.
-- Custom From dates begin at local midnight and To dates include the complete final day through 23:59:59.999.
-- Today, 7-day, 30-day, all-time, CSV share, receipt share, reports, backup, restore, and PIN recovery remain present.
-
-Owner physical-test checklist:
-
-1. Install over Alpha 8 without uninstalling.
-2. Confirm the PIN recovery/new PIN from Alpha 8 still works.
-3. Confirm existing customers, girvi, payments, reports, backup and restore remain.
-4. Open `Girvi Tools Test` → Reports → Khata.
-5. Select a customer and edit name, mobile, and address.
-6. Close and reopen Reports; edits must persist.
-7. Confirm linked girvi rows show the updated customer name.
-8. Try assigning a mobile number already used by another customer; save must be rejected.
-9. Confirm a customer with any girvi history cannot be deleted.
-10. Create an unused customer in the main app and confirm only that customer can be deleted from Khata.
-11. In Collections choose Custom Date Range and select exact From/To dates.
-12. Confirm receipts from the final selected day are included.
-13. Select From after To and confirm the range is rejected/returns no destructive behavior.
-14. Share the custom-range CSV and open it in Sheets/Excel.
-15. Check scrolling, keyboard overlap, dialog clipping and app restart persistence.
-
-Known limitations:
-
-- Alpha 8 PIN recovery and verified restore still require owner physical confirmation.
-- Main app and Tools remain two launcher entries inside one package.
-- Customer create remains in the main girvi flow; Alpha 9 adds edit/delete to Reports Khata.
-- Privacy screenshot/recent-app blocking is still pending app-wide.
-- Google Drive automatic backup and the final transactional encrypted relational database remain pending.
+- Only unused customers can be deleted; all girvi history remains protected.
+- Collection reports support exact Android From/To date pickers.
+- Final selected date includes the full local day through 23:59:59.999.
+- Existing reports, CSV/receipt sharing, backup, restore and PIN recovery remained functional in the owner's check.
 
 ## v0.8.0-alpha.8-pin-recovery
 
-**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
-
-Build source:
+**Status: VERIFIED TESTING BUILD — FUNCTIONALLY INCLUDED IN OWNER-APPROVED ALPHA 9**
 
 - Commit: `c289c31b94ed260d6a686c93ee45489f359ac628`
 - Android workflow run: `30477959563`
@@ -74,36 +94,8 @@ Build source:
 - Artifact ID: `8734522129`
 - Package: `com.girvikhata.app.testing`
 - Version code/name: `8` / `0.8.0-testing`
-- APK size: `19,993,086 bytes`
 - APK SHA-256: `74965918d7a97c33f28faaad8df81486a0342788009d603c4de5057f984a3d96`
-
-Owner-reported regression addressed:
-
-- Alpha 7 did not accept the previously configured PIN on the owner's device.
-- Alpha 2 through Alpha 7 retained the same preference namespace and verifier field names; no source-level package or key rename was found.
-- A data-preserving recovery route is now available through `Girvi Tools Test` when the stored verifier is unusable or lockout prevents access.
-- Recovery requires strong biometric authentication or the device screen credential, then replaces only the PIN verifier and clears lockout metadata.
-- Customer, girvi, category, payment, reversal, release, report, and backup data are not deleted during PIN recovery.
-- Stored verifier validation now checks hash length, salt length, and PBKDF2 iteration bounds; security-state writes use synchronous persistence.
-
-Verified restore scope:
-
-- PIN-protected `.gkb` file selection through Android's document picker.
-- Recovery-passphrase decryption, authenticated tamper detection, and strict schema validation.
-- Preview of customer, category, girvi, and immutable payment-ledger counts before replacement.
-- Explicit destructive confirmation before current data is replaced.
-- Automatic encrypted pre-restore safety backup, retaining the latest three internal copies.
-- Strict validation for duplicate identifiers/numbers, missing customer links, payment allocation reconciliation, timestamps, statuses, item quantities, and supported schema.
-- Encrypted local-store save followed by read-back count verification.
-- Wrong passphrase, damaged file, unsupported schema, or malformed data fails before existing records are modified.
-
-Known limitations:
-
-- Root cause of the owner's Alpha 7 stored-verifier failure cannot be proven remotely from source alone; Alpha 8 adds a safe recovery path and stronger verifier validation.
-- Internal pre-restore safety copies are removed if the app is uninstalled; an external `.gkb` backup remains mandatory.
-- Google Drive automatic upload, read-back verification, retention, and scheduled backup are pending.
-- Main app and Tools remain two launcher entries inside the same package; final single-navigation refactor is pending.
-- Persistence remains the interim encrypted snapshot store rather than the final transactional encrypted relational database.
+- Added authenticated data-preserving PIN recovery and strict portable `.gkb` restore with pre-restore safety backup and post-save verification.
 
 ## v0.7.0-alpha.7
 
@@ -115,7 +107,7 @@ Known limitations:
 - Artifact ID: `8713757434`
 - Version code/name: `7` / `0.7.0-testing`
 - APK SHA-256: `5f87cf94b8bf10331e153b1cfbf7a0e568498c96fde93bc83901d02a12581177`
-- Existing previously configured PIN was not accepted on the physical device; superseded by Alpha 8.
+- Existing previously configured PIN was not accepted on the physical device; superseded by Alpha 8 recovery.
 
 ## v0.4.0-alpha.4
 
