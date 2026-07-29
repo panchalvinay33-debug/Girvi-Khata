@@ -12,154 +12,104 @@ This file must be updated with every meaningful code, design, security, backup, 
 
 ## 2026-07-28 — Project initialization
 
-### Completed
+- ✅ Dedicated GitHub repository and development branch established.
+- ✅ Privacy-first, single-owner, offline-first product scope locked.
+- ✅ Roadmap, backup blueprint, decision log, security policy, testing ledger, and mandatory test-before-merge workflow created.
+- ✅ Android Kotlin/Compose scaffold started.
+- ✅ Android uncontrolled cloud backup/device transfer disabled.
+- ✅ Repository policy blocks credentials, signing material, databases, backups, and production data.
 
-- ✅ Dedicated GitHub repository verified with admin/write access.
-- ✅ Privacy-first single-owner scope locked.
-- ✅ Master roadmap, encrypted backup blueprint, decision log, and security policy created.
-- ✅ Android Kotlin/Compose scaffold and navy-purple lock/dashboard prototype started.
-- ✅ Android uncontrolled cloud backup and device transfer disabled.
-- ✅ Repository ignore policy blocks keys, credentials, databases, backups, and production data.
+## 2026-07-28 — Security and business core
 
-## 2026-07-28 — Security and business-core milestone
+- ✅ Models for customers, categories, configurable items, girvi records, multiple items, weights, interest plans, payments, releases, and reversals.
+- ✅ Transparent monthly/daily/yearly/fixed/compound/manual/no-interest calculation foundations.
+- ✅ Exact payment allocation and reconciliation rules.
+- ✅ Deterministic girvi and payment receipt numbering.
+- ✅ Salted PBKDF2 PIN verifier, weak-PIN rejection, progressive lockout, Android Keystore AES-256-GCM wrapper.
+- ✅ Security Guard and Android CI foundations.
+- ✅ Pure-domain automated test suite established.
 
-### Completed
+## Alpha 1 and Alpha 2-fixed
 
-- ✅ Core domain models added for shop, custom categories, item masters, customers, weights, multiple girvi items, interest plans, accounts, and payments.
-- ✅ Item entry supports either a list item or a manual item name.
-- ✅ Weight model calculates gross and net grams and prevents negative values.
-- ✅ Payment model enforces exact principal + interest + charges reconciliation.
-- ✅ Reversal payments require a link to the original transaction.
-- ✅ Transparent interest engine implemented for monthly, daily, yearly, fixed, compound, manual, and no-interest plans.
-- ✅ Partial-month rules, grace days, compound intervals, and rounding rules implemented.
-- ✅ Manual adjustments remain separate from automatic interest.
-- ✅ Payment allocation engine supports interest-first, principal-first, and validated custom allocation.
-- ✅ Deterministic date-and-sequence girvi number generator added.
-- ✅ Customer and girvi validation layer added.
-- ✅ PIN hashing uses salted PBKDF2-HMAC-SHA256 and rejects common/repeated PINs.
-- ✅ Progressive PIN lockout policy added.
-- ✅ Android Keystore AES-256-GCM device-key wrapper added.
-- ✅ Offline-first repository contracts and safe audit-event contract added.
-- ✅ Backup manifest, verified-state model, trigger model, and restore result contract added.
-- ✅ GitHub Security Guard workflow rejects obvious secrets and forbidden production files.
+- ✅ Alpha 1 PIN, navigation, dashboard, and CI APK physically tested and owner-approved.
+- ✅ Alpha 2 initial APK exposed an install-signature conflict.
+- ✅ Permanent testing package `com.girvikhata.app.testing` and stable cached non-production testing signing identity established.
+- ✅ Alpha 2-fixed physically tested and owner-approved.
+- ✅ Encrypted customer/category/girvi persistence, search, restart persistence, and lock/unlock verified.
 
-### Automated tests added
+## Alpha 3
 
-- ✅ Simple monthly interest.
-- ✅ Extra-day full-month calculation.
-- ✅ Half-month slab calculation.
-- ✅ Six-month compound calculation.
-- ✅ Manual discount separation.
-- ✅ Invalid date rejection.
-- ✅ Interest-first, principal-first, and invalid custom payment allocation.
-- ✅ PIN hash verification, weak PIN rejection, and fifth-attempt lockout.
+- ✅ Existing-customer picker, multiple-item editor, detailed girvi view, interest rows, category activation safety, biometric unlock, and lifecycle auto-lock implemented.
+- ✅ Encrypted schema v2 preserved older Alpha 2 records.
+- ✅ Android build and Security Guard passed.
+- ℹ️ Alpha 3 was functionally superseded by Alpha 4.
 
-## 2026-07-28 — Alpha 1 testing milestone
+## 2026-07-29 — Alpha 4 payments, settlement, and release
 
-- ✅ Real PIN enrollment and verification wired into Compose.
-- ✅ Dashboard, Customers, Girvi, Masters, and More tabs working.
-- ✅ Android CI unit tests passed.
-- ✅ Debug APK built and artifact verified.
-- ✅ Alpha 1 APK shared for physical-device testing.
-- ✅ Owner confirmed the Alpha 1 flow works properly.
+- ✅ Encrypted schema v3 added immutable payment-ledger entries, allocations, notes, payment modes, reversals, release metadata, and manual-interest adjustment storage.
+- ✅ Interest-first, principal-first, and custom allocation UI.
+- ✅ Overpayment protection and exact reconciliation.
+- ✅ Automatic receipt numbers and payment history.
+- ✅ Linked payment reversals instead of deletion.
+- ✅ Settlement summary, outstanding release block, owner override, and release note.
+- ✅ Dashboard payment and released totals.
+- ✅ Unit tests, Compose compilation, signing, artifact verification, and Security Guard passed.
+- ✅ Alpha 4 physically tested and owner-approved. This remains the latest owner-approved functional baseline.
 
-## 2026-07-28 — Encrypted local persistence and girvi-entry milestone
+## 2026-07-29 — Alpha 5 reports and exports
 
-### Completed
+- ✅ Customer-wise khata and portfolio-summary engines.
+- ✅ Effective collections exclude reversed original payments while preserving immutable history.
+- ✅ Active/released/all filtering, customer outstanding ranking, date-range collections.
+- ✅ Receipt and customer-statement text builders.
+- ✅ CSV export with safe escaping and app-private FileProvider sharing.
+- ✅ PIN-protected visible Reports entry.
+- ✅ Android build and Security Guard passed.
 
-- ✅ Added app-private encrypted snapshot storage.
-- ✅ Business records are serialized in memory and encrypted before disk write.
-- ✅ AES-256-GCM key is generated and protected by Android Keystore.
-- ✅ Store uses authenticated associated data and a versioned binary envelope.
-- ✅ Writes use a temporary file followed by replacement to reduce partial-write risk.
-- ✅ Customer records now persist across app restarts.
-- ✅ Categories now persist and can be manually added.
-- ✅ Girvi records now persist across app restarts.
-- ✅ New Girvi screen collects customer, mobile, address, category, item, weight, principal, and monthly interest rate.
-- ✅ New customers are created during girvi entry; matching customers are reused.
-- ✅ Dashboard totals are calculated from saved records.
-- ✅ Customer search and girvi lists use saved encrypted data.
-- ✅ One-month and six-month simple-interest preview added to the entry screen.
+## 2026-07-29 — Alpha 6 customer and portable-backup foundations
 
-### Security/backup impact
+- ✅ Customer update normalization, duplicate-mobile protection, linked display-name propagation, and deletion safety.
+- ✅ Exact local-time report ranges.
+- ✅ Portable backup crypto: AES-256-GCM, PBKDF2-HMAC-SHA256 310,000 iterations, random salt/nonce, authenticated envelope, payload limits, wrong-passphrase and tamper rejection.
+- ✅ Customer and backup test suites passed.
+- ✅ Visible backup UI remained pending at this stage.
 
-- ✅ Plain customer and girvi JSON is never written to disk.
-- ✅ The encrypted store remains inside Android app-private storage.
-- ✅ Android automatic cloud backup remains disabled.
-- ⚠️ This snapshot store is an interim persistence layer. It will be migrated to a transaction-safe encrypted relational store before production use.
-- ⚠️ Google Drive backup/restore is not yet active.
+## 2026-07-29 — Alpha 7 visible tools and backup
 
-## 2026-07-28 — Mandatory test-before-merge process
+- ✅ `Girvi Tools Test` hub added.
+- ✅ Visible Reports and PIN-protected encrypted backup creation.
+- ✅ Complete snapshot serializer includes customers, categories, girvi items, payments, reversals, release metadata, and adjustments.
+- ✅ `.gkb` binary backup sharing through app-private cache and temporary URI permission.
+- ✅ Android build, signing, artifact verification, and Security Guard passed.
+- ⚠️ Owner reported that the previously configured PIN was not accepted after installing Alpha 7.
+- ⚠️ Alpha 7 is superseded and must not be treated as approved.
 
-- ✅ Owner confirmed that every milestone will be tested separately before merging.
-- ✅ `main` is now defined as the latest owner-approved testing baseline.
-- ✅ New work must remain on a feature/milestone branch until its APK is tested and approved.
-- ✅ Mandatory workflow documented in `docs/DEVELOPMENT_WORKFLOW.md`.
-- ✅ Roadmap updated with the branch → APK → owner test → fix → approval → merge gate.
-- ✅ Every milestone must update roadmap, progress, decisions, testing releases, and the backup blueprint when data/security/backup behavior changes.
-- ✅ Large new ideas will be recorded as future milestones instead of silently expanding the current test scope.
+## 2026-07-29 — Alpha 8 verified restore and PIN recovery
 
-## 2026-07-28 — Stable testing installation fix
+- ✅ Strict portable snapshot decoder added.
+- ✅ `.gkb` restore flow: PIN gate, Android file picker, recovery phrase, authenticated decrypt, schema/data validation, preview, explicit destructive confirmation, encrypted local save, and read-back count verification.
+- ✅ Restore validates duplicate IDs/numbers, customer links, payment reconciliation, timestamps, status values, item quantities, and supported schema.
+- ✅ Current records remain untouched on wrong passphrase, tamper, malformed payload, or failed validation.
+- ✅ Automatic app-private pre-restore safety backup added; latest three retained.
+- ✅ Data-preserving PIN recovery added through strong biometric or device credential authentication.
+- ✅ PIN recovery replaces only the PIN verifier and lockout state; business records are not intentionally modified.
+- ✅ PIN verifier parsing hardened with hash/salt/iteration validation and synchronous security-state commits.
+- ✅ Android Build `30477959563` passed.
+- ✅ Security Guard `30477959615` passed.
+- ✅ Artifact `8734522129` verified.
+- ✅ Alpha 8 APK SHA-256: `74965918d7a97c33f28faaad8df81486a0342788009d603c4de5057f984a3d96`.
+- 🧪 Alpha 8 physical-device testing is pending, especially direct upgrade, PIN recovery, backup creation, and dummy-data restore.
+- ⚠️ `main` remains untouched until explicit owner approval.
 
-- ✅ Root cause confirmed: Alpha 1 and Alpha 2 were signed by different ephemeral CI debug keys.
-- ✅ Testing APK now uses separate package ID `com.girvikhata.app.testing`, so it does not conflict with the old prototype package.
-- ✅ Testing app label changed to `Girvi Khata Test` so both icons are clearly distinguishable.
-- ✅ CI now creates one random non-production testing key and retains it in a fixed GitHub Actions cache.
-- ✅ Future testing APKs reuse the same package and signing identity, allowing direct upgrades while preserving PIN and encrypted local data.
-- ✅ Production package and production release signing remain separate and are not stored in source control.
+## Current risks and incomplete work
 
-## 2026-07-28 — Alpha 2 owner approval and next milestone foundation
-
-- ✅ Owner installed the corrected permanent testing package successfully.
-- ✅ PIN, category creation, girvi creation, dashboard totals, search, listing, lock/unlock, app restart, and encrypted record persistence were physically tested and approved.
-- ✅ Alpha 2 fixed is now the owner-approved testing baseline.
-- ✅ Encrypted snapshot schema upgraded from v1 to v2 while keeping Alpha 2 records readable.
-- ✅ Multiple-item record structure added with legacy single-item migration fallback.
-- ✅ Item validation now covers quantity, gross weight, deduction, and net weight.
-- ✅ Customer matching now prefers normalized exact mobile and falls back to normalized name.
-- ✅ Customer search now supports name, mobile, and address.
-- ✅ Girvi numbering now scans the highest sequence for the current date instead of relying on total record count.
-- ✅ Transparent month-wise simple-interest breakup added.
-- ✅ Category deactivate safety rule blocks deactivation while an active girvi uses that category.
-- ✅ Session auto-lock timeout policy added with clock-rollback protection.
-- ✅ Biometric hardware/enrollment capability layer added.
-- ✅ New automated tests added for customer matching, searching, multiple-item validation, numbering, calculation breakup, category safety, and session locking.
-
-## 2026-07-28 — Alpha 3 visible workflow implementation
-
-- ✅ Existing-customer search and picker wired into the new-girvi screen.
-- ✅ Customer selection fills saved mobile/address and reuses the existing customer ID.
-- ✅ Multiple-item editor wired with add/remove, category, item name, quantity, gross weight, deduction, net-weight preview, and description.
-- ✅ Girvi save now persists all item rows in encrypted schema v2.
-- ✅ Girvi list and dashboard now display real multi-item totals.
-- ✅ Girvi detail screen added with every saved item and gross/deduction/net weight.
-- ✅ Month-selectable detailed simple-interest screen added with month-wise rows and total payable.
-- ✅ Category activate/deactivate controls wired; categories used by active girvi remain protected.
-- ✅ Real strong-biometric prompt wired to the lock screen when enrolled hardware is available.
-- ✅ Activity lifecycle wired to the 30-second background auto-lock policy.
-- ✅ Testing version advanced to `0.3.0-testing`, version code 3, retaining the permanent testing package/signature.
-- ✅ Alpha 2 encrypted records remain readable through the v1-to-v2 migration fallback.
-- ✅ Android unit tests, Compose compilation, signing, APK packaging, and Security Guard passed.
-- 🧪 Alpha 3 physical-device approval remains pending.
-
-## 2026-07-29 — Payment, settlement and release foundation
-
-- ✅ Added exact payment allocation for interest-first, principal-first, and custom splits.
-- ✅ Charges, interest, and principal allocations must reconcile exactly to the applied payment.
-- ✅ Overpayment is detected explicitly instead of silently changing balances.
-- ✅ Immutable payment-ledger model added; past payment entries are never edited or deleted.
-- ✅ Reversal requires a new linked reversal entry and a reason.
-- ✅ Receipt numbering scans the highest sequence for the current date.
-- ✅ Settlement view calculates principal due, interest due, charges due, and total due from the effective ledger.
-- ✅ Manual interest adjustments remain separately recorded from calculated interest.
-- ✅ Release policy blocks item release while dues remain unless an explicit owner override is recorded.
-- ✅ Encrypted snapshot schema upgraded from v2 to v3 with backward-compatible defaults for Alpha 2/3 records.
-- ✅ Payment entries, payment mode, notes, reversal links, release timestamp, release note, and manual-interest adjustments now persist encrypted.
-- ✅ Added tests for allocation order, custom reconciliation, overpayment, reversals, receipt sequencing, release blocking, owner override, and rupee-to-paise rounding.
-- 🚧 Android CI is validating schema v3 and the new accounting tests.
-- ⏳ Next visible wiring: receive-payment form, allocation preview, payment history, reversal confirmation, settlement summary, and release confirmation screen.
-- ⚠️ Alpha 3 must still be physically tested before any merge to `main`.
+- ⚠️ Local persistence remains an encrypted snapshot file rather than a final transactional encrypted relational database.
+- ⚠️ Corrupt local-store loading still needs explicit recovery instead of silent fallback to defaults.
+- ⏳ Google Drive OAuth, appDataFolder upload, read-back verification, retention, scheduling, and cloud restore discovery.
+- ⏳ Single in-app navigation; main and Tools currently remain two launcher entries.
+- ⏳ Customer profile/edit/delete-safe visible UI, custom date picker, PDF/thermal receipts, media vault, and production signing.
+- ⚠️ Repository must become Private before real OAuth credentials, production signing, or real business data are introduced.
 
 ## Update rule
 
-For every future change, append the date, completed behavior, security/backup impact, tests, decisions, and next concrete task.
+For every future change, record completed behavior, security/backup impact, tests, owner-test status, known risks, exact build evidence, and the next concrete task. `docs/CURRENT_STATE.md` must remain consistent with this ledger.
