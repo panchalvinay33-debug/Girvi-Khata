@@ -9,6 +9,61 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling, and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.11.0-alpha.11
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+Build source:
+
+- Commit: `ed866d3580e747108ed5a4a53a0b36798a3eba6a`
+- Android workflow run: `30485337748`
+- Security Guard run: `30485348627`
+- Artifact ID: `8737489498`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `11` / `0.11.0-testing`
+- APK size: `20,042,234 bytes`
+- APK SHA-256: `a1f95823e34ca86cb762e2d545984ca28699a1c470089203bb03fce24f4f0741`
+
+Verified scope:
+
+- The encrypted local store no longer converts corruption into an empty/default khata.
+- Normal saves validate schema, duplicate IDs/numbers, customer links, statuses, principal and timestamps before writing.
+- Existing valid primary is copied into rotating encrypted pre-save safety storage; latest five copies are retained.
+- New primary writes use a temporary file, filesystem sync, decrypt/decode comparison before replacement and final primary read-back verification.
+- Envelope magic, format version, file size, IV length, ciphertext length and trailing bytes are validated before decryption/allocation.
+- A damaged primary automatically tries newest safety copies and promotes the first verified copy.
+- Damaged primary bytes are quarantined; latest two quarantine files are retained.
+- If no valid local copy remains, Dashboard is blocked and `Data Recovery Required` is shown instead of empty records.
+- Main recovery screen opens verified `.gkb` restore and supports retry without reinstalling.
+- Tools blocks Reports and new-backup creation during corruption while Restore and PIN Recovery remain available.
+- Restore can quarantine a fully corrupt primary and install a verified portable snapshot.
+- Valid current data still receives an encrypted pre-restore safety backup; file bytes and restored record counts are checked.
+- New pure tests cover envelope bounds, retention order, duplicate girvi numbers and missing customer links.
+- Unit tests, Compose/Android build, stable signing, APK upload, Security Guard, artifact ZIP and APK integrity passed.
+
+Owner physical-test checklist:
+
+1. Install directly over Alpha 10 without uninstalling.
+2. Confirm existing PIN, fingerprint, customers, girvi, categories, payments, reports, backup and restore remain.
+3. Create or edit a dummy customer/girvi/payment and restart after each operation; data must persist.
+4. Confirm no normal operation displays an unexpected empty khata.
+5. Create and externally save a fresh `.gkb` backup before any fault simulation.
+6. Do not damage files containing real records; use disposable dummy data/test device only.
+7. With a deliberately damaged primary and a valid local safety copy, confirm automatic recovery.
+8. If all local copies are deliberately damaged, confirm `Data Recovery Required` appears and Dashboard is unavailable.
+9. Confirm Tools disables Reports and Backup but leaves Restore and PIN Recovery enabled.
+10. Restore the external `.gkb`, return to main app and tap `Restore Ke Baad Dobara Check Karein`.
+11. Confirm restored customers, girvi and ledger counts match the backup.
+12. Confirm one launcher icon, Tools access, screenshot blocking and 30-second auto-lock still work.
+
+Known limitations:
+
+- The store is still an encrypted snapshot file, not the final transactional encrypted relational database.
+- Local safety/quarantine copies are Android-Keystore/device bound and disappear on uninstall or device loss.
+- External portable `.gkb` backup remains mandatory.
+- Google Drive automatic upload/read-back verification remains pending.
+- Deliberate fault injection must not be performed on real customer data.
+
 ## v0.10.0-alpha.10
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
@@ -35,24 +90,9 @@ Verified scope:
 - Screenshots, normal screen recording and readable recent-app previews should be blocked where the device honors `FLAG_SECURE`.
 - All unit tests, Android compilation, stable testing signing, APK packaging, artifact upload and Security Guard passed.
 
-Owner physical-test checklist:
-
-1. Install directly over Alpha 9 without uninstalling.
-2. Confirm existing PIN, customers, girvi, payments, reports, backup files and restore behavior remain.
-3. Confirm the launcher now shows only `Girvi Khata Test`; the old Tools icon should disappear after launcher refresh/restart.
-4. Open the main app and tap the floating Settings/Tools button.
-5. Confirm Reports, Encrypted Backup, Restore and PIN Recovery open from the Tools hub.
-6. Confirm Reports and Backup still reject a wrong PIN and accept the correct PIN.
-7. From the main lock screen, open Tools and confirm PIN Recovery still requires fingerprint/device credential.
-8. Attempt screenshots on lock, customer, girvi, report, backup and restore screens; capture should be blocked/blank according to device behavior.
-9. Open recent apps and confirm no readable customer/business data appears in the preview.
-10. Confirm the floating Tools button does not hide important save/payment/release controls.
-11. Return from Tools and verify the 30-second background auto-lock still works.
-12. Report duplicate icons, exposed previews, screenshot capture, missing Tools access, data loss, overlay obstruction or crashes.
-
 Known limitations:
 
-- Tools is opened as an internal activity from a floating button rather than rendered as a native bottom-navigation page; this minimizes regression risk while removing the second launcher icon.
+- Tools is opened as an internal activity from a floating button rather than rendered as a native bottom-navigation page.
 - OEM and accessibility capture behavior may differ, so privacy blocking requires physical-device confirmation.
 - Google Drive automatic backup and the final encrypted transactional database remain pending.
 
@@ -62,8 +102,6 @@ Known limitations:
 
 Owner confirmation: testing completed successfully; development may continue from the customer-profile and custom-date baseline.
 
-Build source:
-
 - Commit: `9d31f06c7a5517da3f3afbbb9b1f5435e2c6c9bd`
 - Android workflow run: `30480566880`
 - Security Guard run: `30480566699`
@@ -72,17 +110,7 @@ Build source:
 - Version code/name: `9` / `0.9.0-testing`
 - APK size: `20,025,854 bytes`
 - APK SHA-256: `698dda752567b1f4f3e28500d95c8c3e21f7e2bd61ed09bb818a15b7145eeb17`
-
-Verified and approved scope:
-
-- Customer khata profile with saved mobile/address and financial totals.
-- Customer name, mobile and address edits persist in encrypted storage.
-- Customer-name changes propagate to linked girvi display names without changing accounting IDs.
-- Duplicate normalized mobile numbers are rejected.
-- Only unused customers can be deleted; all girvi history remains protected.
-- Collection reports support exact Android From/To date pickers.
-- Final selected date includes the full local day through 23:59:59.999.
-- Existing reports, CSV/receipt sharing, backup, restore and PIN recovery remained functional in the owner's check.
+- Customer profile/edit/delete safety and exact custom collection dates owner-approved.
 
 ## v0.8.0-alpha.8-pin-recovery
 
@@ -92,42 +120,28 @@ Verified and approved scope:
 - Android workflow run: `30477959563`
 - Security Guard run: `30477959615`
 - Artifact ID: `8734522129`
-- Package: `com.girvikhata.app.testing`
-- Version code/name: `8` / `0.8.0-testing`
 - APK SHA-256: `74965918d7a97c33f28faaad8df81486a0342788009d603c4de5057f984a3d96`
-- Added authenticated data-preserving PIN recovery and strict portable `.gkb` restore with pre-restore safety backup and post-save verification.
+- Added authenticated data-preserving PIN recovery and strict portable `.gkb` restore.
 
 ## v0.7.0-alpha.7
 
 **Status: SUPERSEDED — OWNER REPORTED PREVIOUS PIN NOT ACCEPTED**
 
 - Commit: `e87ec9b252e0f2470eddbc7408abb694d48c0bb1`
-- Android workflow run: `30426181772`
-- Security Guard run: `30426181774`
-- Artifact ID: `8713757434`
-- Version code/name: `7` / `0.7.0-testing`
 - APK SHA-256: `5f87cf94b8bf10331e153b1cfbf7a0e568498c96fde93bc83901d02a12581177`
-- Existing previously configured PIN was not accepted on the physical device; superseded by Alpha 8 recovery.
 
 ## v0.4.0-alpha.4
 
 **Status: VERIFIED TESTING BUILD — OWNER APPROVED**
 
 - Commit: `6d39fbd6dec11204e340e40284659993faa612d5`
-- Workflow run: `30412018790`
-- Artifact ID: `8708824816`
-- Package: `com.girvikhata.app.testing`
-- Version code/name: `4` / `0.4.0-testing`
 - APK SHA-256: `6bb19e1eefd2192fac811616db891f55cd8ac889e18937c1cbb9ac4012eb2306`
-- Payment receive, allocation, reversal, release, encrypted schema v3, and dashboard payment/release totals owner-approved.
 
 ## v0.3.0-alpha.3
 
 **Status: VERIFIED TESTING BUILD — FUNCTIONALLY SUPERSEDED BY OWNER-APPROVED ALPHA 4**
 
 - Commit: `2fded9557a039714c07c01ccb058af0c9f3bcfed`
-- Workflow run: `30387546934`
-- Artifact ID: `8699655919`
 - APK SHA-256: `f8d76b01c23de35fc10c1c8c0348fd9137f5eba9a227a8d16290fc07bb3042ce`
 
 ## v0.2.0-alpha.2-fixed
@@ -135,9 +149,6 @@ Verified and approved scope:
 **Status: VERIFIED TESTING BUILD — OWNER APPROVED**
 
 - Commit: `15c5ccbe096042a15a06116c22ecec6f8236281a`
-- Workflow run: `30384904918`
-- Artifact ID: `8698642645`
-- Package: `com.girvikhata.app.testing`
 - APK SHA-256: `ac923b42ffa2968ad3a95a60075814f57a26cde932ac7d549cbab3305748c63f`
 
 ## v0.2.0-alpha.2
@@ -151,6 +162,4 @@ Used the original package with a different ephemeral debug key. Replaced by `v0.
 **Status: VERIFIED TESTING BUILD — OWNER APPROVED**
 
 - Commit: `a9037dbab10af729a6ed2c298a47fc74e250c09d`
-- Workflow run: `30374188211`
-- Artifact ID: `8694333535`
 - APK SHA-256: `09b2ee05518e17654f9f5e81a75eadc76d43c1f0a6642573a572bc179c143c9c`
