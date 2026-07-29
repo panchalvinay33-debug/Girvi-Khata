@@ -5,88 +5,123 @@ Last updated: 2026-07-29
 ## Privacy boundary
 
 - Business data is never stored in a Girvi Khata company database.
-- Primary records and media stay in app-private storage on the owner's Android phone.
-- Google Drive may receive only client-side encrypted packages.
+- Primary records stay in app-private storage on the owner's Android phone.
+- Owner-selected storage or Google Drive may receive only client-side encrypted packages.
 - No developer master key, universal PIN, hidden admin login, remote viewer, or remote-delete channel exists.
 
-## Current local milestone
+## Current implemented local storage
 
-The testing app currently uses an Android Keystore-protected AES-256-GCM encrypted snapshot store. Schema v3 contains customers, categories, multiple girvi items, payments, allocation splits, reversals, manual-interest-adjustment foundation, and release metadata. This remains an interim store; production requires a transaction-safe encrypted relational database.
+- App-private encrypted snapshot file.
+- AES-256-GCM encryption with an Android Keystore-protected device key.
+- Authenticated binary envelope and schema v3 JSON payload.
+- Schema v3 contains customers, categories, multiple girvi items, payments, allocations, reversals, manual-interest adjustments, and release metadata.
+- Writes use a temporary file and replacement approach.
 
-## Planned storage layers
+### Current limitation
 
-1. Transactional encrypted local database for business/audit records.
-2. Encrypted media vault for item/customer/document/signature/receipt files.
-3. Owner's Google Drive app-data space for encrypted packages, recovery-key envelope, manifests, and retention metadata.
+This is an interim testing store, not the final production database. Stable production requires transaction-safe encrypted relational storage, robust migrations, and explicit corrupt-store recovery. An unreadable local store must never silently become an empty working ledger in production.
 
-## Key hierarchy
+## Implemented portable `.gkb` backup
 
-- `MasterDataKey`: random 256-bit key protecting database/media backup material.
-- `DeviceWrappingKey`: non-exportable Android Keystore key wrapping the local master key.
-- `RecoveryWrappingKey`: derived from the owner's recovery passphrase with a memory-hard KDF.
-- Raw keys and passphrases never enter logs, preferences, analytics, source control, or Drive.
+- Complete business snapshot serializer.
+- AES-256-GCM authenticated encryption.
+- Recovery key derived from owner passphrase by PBKDF2-HMAC-SHA256 with 310,000 iterations.
+- Random 16-byte salt and 12-byte nonce per package.
+- Versioned package header, schema version, creation time, KDF settings, bounded ciphertext length, and trailing-data rejection.
+- Minimum recovery phrase: 12 characters with letters and digits.
+- Wrong passphrase and tampered/corrupt package use a safe failure path.
+- Package limit: 128 MB.
+- Temporary shared backup files remain in app-private cache and receive only temporary read permission through FileProvider.
+- Recovery phrases are not persisted in preferences, logs, source, analytics, or package metadata.
 
-## Export and manifest rules
+## Implemented backup contents
 
-- Reports use the **effective ledger**: original payments that have a linked reversal are excluded from received/collection totals.
-- Reversal records remain in the immutable audit history even when excluded from effective totals.
-- CSV and receipt exports are generated from in-memory decrypted records and must be written only to app-private temporary files until the owner explicitly shares them.
-- Export files must never be silently uploaded or left in public Downloads storage.
-- A backup manifest records schema version, creation time, customer count, girvi count, payment-entry count, and SHA-256 of the encrypted payload.
-- Manifest counts include immutable reversal entries; financial collection totals use only effective payments.
+- Customers, mobile numbers, addresses, and creation times
+- Categories and active status
+- Girvi IDs/numbers, customer links, status, principal, rate, dates
+- Multiple items, quantity, category/item names, gross/deduction weight, descriptions
+- Payment receipt numbers, amounts, principal/interest/charges allocations, mode, note, time
+- Reversal markers and original-payment links
+- Manual-interest adjustments
+- Release time and release note
 
-## Backup package pipeline
+## Implemented restore flow
 
-1. Freeze a consistent database snapshot.
-2. Serialize records and media references into a versioned package.
-3. Build a manifest with schema/app version, counts, package ID, chunk metadata, and encrypted-payload SHA-256.
-4. Compress where appropriate before encryption.
-5. Encrypt every chunk with authenticated encryption and a unique nonce.
-6. Store a passphrase-wrapped recovery-key envelope separately inside the package.
-7. Upload to the owner's Drive app-data space.
-8. Read metadata/content back and verify size, hashes, chunk authentication, manifest decryptability, and record counts.
-9. Mark verified only after every check succeeds.
+1. Require existing app PIN.
+2. Select `.gkb` package through Android document picker.
+3. Request recovery passphrase.
+4. Verify package structure and authenticated encryption.
+5. Decode the snapshot into temporary memory.
+6. Reject unsupported schema, malformed payload, duplicate IDs/numbers, missing customer links, invalid quantities/timestamps/status, or unreconciled payments.
+7. Show customer/category/girvi/payment counts, creation time, and payload SHA-256 preview.
+8. Require explicit destructive confirmation.
+9. Encrypt the current snapshot into app-private pre-restore safety storage.
+10. Save the imported snapshot into the device-protected encrypted store.
+11. Reload saved records and verify customer, girvi, and immutable payment-entry counts.
+12. Report success only after read-back verification.
 
-## Backup triggers
+## Pre-restore safety storage
 
-Critical queued backup after new girvi, payment, reversal, release, manual financial adjustment, or security/recovery-setting change.
+- Current snapshot is protected with the same recovery passphrase before replacement.
+- Stored in app-private `restore_safety` storage.
+- Latest three safety packages are retained.
+- These copies are not a substitute for an external backup because uninstalling the app removes app-private files.
+- A future milestone must add visible safety-copy management and rollback.
 
-Scheduled backup: daily WorkManager job with bounded exponential backoff, preferably on Wi-Fi and sufficient battery.
+## PIN recovery and backup separation
 
-Manual backup: always available from Backup & Security.
+- The six-digit app PIN never encrypts portable backups.
+- PIN recovery may replace the local PIN verifier and lockout state only after strong biometric or device-credential authentication.
+- PIN recovery must not intentionally rewrite customers, girvi, payments, reports, or backup packages.
+- Recovery phrase and device credential remain separate security factors.
 
-## Retention proposal
+## Export and reporting rules
+
+- Reports use the effective ledger: an original payment with a linked reversal is excluded from collection totals.
+- Reversal records remain in immutable audit history and backup counts.
+- CSV, receipt, statement, and backup files are generated from in-memory decrypted records and written only to app-private temporary locations until explicitly shared.
+- No export is silently written to public Downloads or uploaded.
+
+## Planned Google Drive architecture
+
+Google Drive is backup storage, not a live database.
+
+1. Make repository Private before adding credentials.
+2. Authorize the owner's Google account with the minimum suitable app-data scope.
+3. Freeze a consistent local snapshot.
+4. Create a versioned encrypted package and manifest.
+5. Upload to the owner's Drive app-data area.
+6. Read metadata/content back.
+7. Verify size, hashes, authenticated package decryptability, schema, and expected counts.
+8. Mark backup verified only after all checks pass.
+9. Retain older verified backup until a newer package is fully verified.
+
+## Planned backup triggers
+
+- Critical queued backup after new girvi, payment, reversal, release, manual financial adjustment, restore, or recovery-setting change.
+- Daily WorkManager backup with bounded exponential backoff and appropriate battery/network constraints.
+- Manual backup always available.
+
+## Planned retention
 
 - Last 10 critical transaction backups
-- Last 7 daily
-- Last 4 weekly
-- Last 6 monthly
+- Last 7 daily backups
+- Last 4 weekly backups
+- Last 6 monthly backups
 
 A previous verified backup is never deleted until a newer package passes complete verification.
 
-## Restore flow
-
-1. Install app and choose the same Google account.
-2. Authorize minimum Drive scope.
-3. Discover compatible verified backups.
-4. Show non-sensitive metadata: shop, date, app/schema version, counts, size.
-5. Request recovery passphrase and rate-limit failures.
-6. Verify package/chunk integrity before touching local data.
-7. Decrypt into a temporary app-private location.
-8. Run schema migrations and validate counts, ledger links, reversals, receipts, and media hashes.
-9. Atomically replace local data.
-10. Generate a new device wrapping key.
-11. Run and verify a post-restore backup.
-
 ## Failure handling
 
-- No internet: continue offline and show pending backup state.
-- Drive full: show an actionable error; never delete local data.
-- Wrong account: show no-backup state without searching other accounts.
-- Wrong passphrase: rate-limit attempts and reveal no partial information.
-- Corrupt package: keep current data untouched and offer older verified versions.
-- Interrupted restore: temporary files plus atomic swap; never expose a half-restored store.
-- Hash/count mismatch: backup remains unverified and is never selected automatically for restore.
+- Wrong passphrase: reveal no partial business data and do not touch current records.
+- Corrupt/tampered package: reject and retain current records.
+- Unsupported schema: reject until a tested migration exists.
+- Validation mismatch: reject before replacement.
+- Interrupted restore: current or pre-restore safety data must remain recoverable.
+- Post-save count mismatch: restore is not considered successful.
+- No internet or Drive failure: local app continues working; pending cloud state is shown later.
+- Drive full: never delete local records.
+- Wrong Google account: show no compatible backups without searching unrelated accounts.
 
 ## Secret-management rules
 
@@ -94,4 +129,10 @@ Never commit OAuth secrets, `google-services.json`, signing keystores/passwords,
 
 ## Verification definition
 
-A successful upload is not a successful backup. Success requires upload, read-back, authenticated decryption checks, SHA-256 verification, manifest verification, and expected record/media counts.
+### Portable local backup
+
+Creation succeeds only after serialization and authenticated encryption complete. Restore succeeds only after authenticated decrypt, strict decode/validation, explicit confirmation, encrypted save, and read-back count verification.
+
+### Future cloud backup
+
+A successful upload is not a successful backup. Success requires upload, read-back, authenticated package checks, SHA-256/manifest verification, and expected record/media counts.
