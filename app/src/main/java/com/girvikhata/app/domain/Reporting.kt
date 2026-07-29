@@ -3,12 +3,33 @@ package com.girvikhata.app.domain
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.GirviRecord
 import com.girvikhata.app.data.PaymentRecord
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
 
 enum class GirviStatusFilter { ALL, ACTIVE, RELEASED }
 
 data class DateRange(val fromInclusive: Long, val toInclusive: Long) {
     init { require(fromInclusive <= toInclusive) }
     fun contains(timestamp: Long): Boolean = timestamp in fromInclusive..toInclusive
+}
+
+object ReportDateRanges {
+    fun localDaysEndingToday(days: Long, now: Long = System.currentTimeMillis(), zoneId: ZoneId = ZoneId.systemDefault()): DateRange {
+        require(days > 0) { "Days must be positive" }
+        val today = Instant.ofEpochMilli(now).atZone(zoneId).toLocalDate()
+        return localDates(today.minusDays(days - 1), today, zoneId)
+    }
+
+    fun localDates(from: LocalDate, to: LocalDate, zoneId: ZoneId = ZoneId.systemDefault()): DateRange {
+        require(!from.isAfter(to)) { "From date cannot be after to date" }
+        val start = from.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val endExclusive = to.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        return DateRange(start, endExclusive - 1)
+    }
+
+    fun allTime(): DateRange = DateRange(0, Long.MAX_VALUE)
 }
 
 data class CustomerLedgerSummary(
@@ -78,6 +99,7 @@ object ReportingEngine {
     }
 
     fun customerLedger(snapshot: AppSnapshot, customerId: String, settlementMonths: Int): CustomerLedgerSummary {
+        require(settlementMonths in 0..120) { "Settlement months must be between 0 and 120" }
         val customer = snapshot.customers.firstOrNull { it.id == customerId }
         val girvis = snapshot.girvis.filter { it.customerId == customerId }
         val views = girvis.map { GirviSettlementUseCase.settlementView(it, settlementMonths) }
@@ -96,6 +118,7 @@ object ReportingEngine {
     }
 
     fun portfolio(snapshot: AppSnapshot, settlementMonths: Int): PortfolioSummary {
+        require(settlementMonths in 0..120) { "Settlement months must be between 0 and 120" }
         val views = snapshot.girvis.map { GirviSettlementUseCase.settlementView(it, settlementMonths) }
         return PortfolioSummary(
             totalCustomers = snapshot.customers.size,
