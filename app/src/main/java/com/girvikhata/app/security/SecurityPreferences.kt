@@ -51,7 +51,7 @@ class SecurityPreferences(context: Context) {
 
         val stored = readStoredPin() ?: run {
             pin.fill('\u0000')
-            return if (hasPin()) PinVerificationResult.CorruptVerifier else PinVerificationResult.NotConfigured
+            return PinVerificationResult.NotConfigured
         }
 
         val valid = runCatching { hasher.verify(pin, stored) }.getOrDefault(false)
@@ -112,7 +112,6 @@ enum class PinVerifierStatus { NOT_CONFIGURED, READY, CORRUPT }
 sealed interface PinVerificationResult {
     data object Success : PinVerificationResult
     data object NotConfigured : PinVerificationResult
-    data object CorruptVerifier : PinVerificationResult
     data class Locked(val untilMillis: Long) : PinVerificationResult
     data class Failure(val attempts: Int, val lockedUntilMillis: Long) : PinVerificationResult
 }
