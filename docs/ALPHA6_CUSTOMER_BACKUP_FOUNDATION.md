@@ -1,6 +1,6 @@
 # Alpha 6 — Customer Account Safety and Portable Encrypted Backup Foundation
 
-Status: IMPLEMENTED — CI VALIDATION PENDING
+Status: VERIFIED TESTING BUILD — OWNER TEST PENDING
 
 ## Owner-approved baseline
 
@@ -49,14 +49,35 @@ Status: IMPLEMENTED — CI VALIDATION PENDING
 - Unused-customer deletion.
 - Customer profile totals.
 
+## Verified build
+
+- Commit: `8f3077ceff30ce6fa7c45651ecd3905d3a10bb69`
+- Android workflow run: `30418144206`
+- Security Guard run: `30418144204`
+- Artifact ID: `8710947731`
+- Artifact archive digest: `sha256:aaad14bf9548a7271c1afa00874864da657dc8bb81a7c1026614839a62609ce1`
+- APK SHA-256: `b971b4fc50199f9c62a5b96b9b0fe7b67db0bd0a1895ac8363d51f4435004916`
+- APK size: `19,927,438 bytes`
+- Unit tests, Android compilation, stable testing signing, APK packaging, artifact upload, and Security Guard passed.
+- Downloaded APK archive integrity check reported no errors.
+
 ## Version
 
 - Version code: 6
 - Version name: `0.6.0-testing`
 - Testing package and stable testing signature remain unchanged.
 
+## Owner test focus
+
+1. Install directly over Alpha 5 without uninstalling.
+2. Confirm existing PIN, customer, girvi, payment, release, and report records remain.
+3. Confirm both current launcher entries still open correctly.
+4. Recheck customer/report totals for regressions.
+5. Confirm no crash during PIN, girvi, payment, release, receipt share, statement share, or CSV share.
+
 ## Honest limitations
 
+- Customer edit/delete operations are domain-complete and tested but not yet wired into visible profile edit buttons.
 - Portable backup crypto is implemented and tested, but the current encrypted snapshot serializer is not yet exposed as an exportable byte stream in the UI.
 - Google Drive upload, read-back verification, retention, and restore screens remain pending.
 - Alpha 5 reports currently use a second launcher entry until the main navigation refactor is completed.
