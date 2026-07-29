@@ -49,6 +49,7 @@ import com.girvikhata.app.backup.SnapshotInspection
 import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.data.RecordStoreLoadState
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.io.File
@@ -73,7 +74,10 @@ class RestoreActivity : FragmentActivity() {
                         RestorePreview(snapshot, SnapshotPortableCodec.inspect(decrypted.payload), decrypted.payloadSha256)
                     },
                     commitRestore = { preview, phrase ->
-                        createSafetyBackup(store.load(), phrase)
+                        when (val current = store.loadState()) {
+                            is RecordStoreLoadState.Ready -> createSafetyBackup(current.snapshot, phrase)
+                            is RecordStoreLoadState.Corrupt -> quarantineDamagedPrimary()
+                        }
                         store.save(preview.snapshot)
                         store.load().also { reloaded ->
                             require(reloaded.customers.size == preview.inspection.customerCount) { "Restore customer verification failed" }
@@ -103,8 +107,21 @@ class RestoreActivity : FragmentActivity() {
         )
         val dir = File(filesDir, "restore_safety").apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        File(dir, "pre-restore-$stamp.gkb").writeBytes(bytes)
+        val target = File(dir, "pre-restore-$stamp.gkb")
+        target.writeBytes(bytes)
+        require(target.readBytes().contentEquals(bytes)) { "Pre-restore safety backup verification failed" }
         dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(3)?.forEach(File::delete)
+    }
+
+    private fun quarantineDamagedPrimary() {
+        val primary = File(filesDir, "business_records_v1.bin")
+        if (!primary.exists()) return
+        val dir = File(filesDir, "record_quarantine").apply { mkdirs() }
+        val target = File(dir, "damaged-before-restore-${System.currentTimeMillis()}.bin")
+        primary.copyTo(target, overwrite = false)
+        require(target.length() == primary.length()) { "Damaged primary quarantine verification failed" }
+        require(primary.delete()) { "Damaged primary ko quarantine nahi kiya ja saka" }
+        dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(2)?.forEach(File::delete)
     }
 }
 
@@ -175,7 +192,7 @@ private fun RestoreWizard(
     }
 
     RestorePanel("Verified Backup Restore", message, Icons.Default.Restore) {
-        Text("Restore se pehle current records ka encrypted safety backup app-private storage mein automatically banega.", color = Color.Gray)
+        Text("Valid current records ka encrypted safety backup बनेगा. Corrupt primary ho to woh quarantine hoga, empty khata se overwrite nahi.", color = Color.Gray)
         OutlinedButton(onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) {
             Text("Backup File Choose Karein")
         }
@@ -207,7 +224,7 @@ private fun RestoreWizard(
             Button(
                 onClick = {
                     runCatching { commitRestore(data, phrase) }
-                        .onSuccess { restored = true; phrase = ""; message = "Restore successful. Main app dobara kholkar records verify karein." }
+                        .onSuccess { restored = true; phrase = ""; message = "Restore successful. Main app mein Dobara Check Karein dabayein." }
                         .onFailure { message = it.message ?: "Restore commit failed" }
                 }, enabled = !restored, modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E)),
