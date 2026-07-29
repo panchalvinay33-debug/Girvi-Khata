@@ -29,7 +29,15 @@ class SnapshotPortableCodecTest {
                     principalPaise = 300_000,
                     monthlyRateBasisPoints = 300,
                     items = listOf(GirviItemRecord(id = "i1", categoryName = "Gold", itemName = "Ring", grossWeightGrams = "10")),
-                    payments = listOf(PaymentRecord(id = "p1", receiptNumber = "PAY-1", amountPaise = 10_000, principalPaise = 10_000)),
+                    payments = listOf(
+                        PaymentRecord(
+                            id = "p1",
+                            receiptNumber = "PAY-1",
+                            amountPaise = 10_000,
+                            principalPaise = 10_000,
+                            interestPaise = 0,
+                        ),
+                    ),
                 ),
             ),
         )
