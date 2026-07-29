@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,6 +42,7 @@ class ToolsActivity : FragmentActivity() {
                 ToolsScreen(
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
+                    openRestore = { startActivity(Intent(this, RestoreActivity::class.java)) },
                     close = ::finish,
                 )
             }
@@ -49,7 +51,7 @@ class ToolsActivity : FragmentActivity() {
 }
 
 @Composable
-private fun ToolsScreen(openReports: () -> Unit, openBackup: () -> Unit, close: () -> Unit) {
+private fun ToolsScreen(openReports: () -> Unit, openBackup: () -> Unit, openRestore: () -> Unit, close: () -> Unit) {
     val navy = Color(0xFF171752)
     val purple = Color(0xFF5146B8)
     Column(
@@ -60,7 +62,7 @@ private fun ToolsScreen(openReports: () -> Unit, openBackup: () -> Unit, close: 
         Icon(Icons.Default.Lock, null, tint = navy)
         Spacer(Modifier.height(10.dp))
         Text("Girvi Khata Tools", fontSize = 29.sp, fontWeight = FontWeight.Bold, color = navy)
-        Text("Reports aur encrypted backup", color = Color.Gray)
+        Text("Reports, encrypted backup aur verified restore", color = Color.Gray)
         Spacer(Modifier.height(24.dp))
         Card(
             Modifier.fillMaxWidth(),
@@ -68,22 +70,19 @@ private fun ToolsScreen(openReports: () -> Unit, openBackup: () -> Unit, close: 
             colors = CardDefaults.cardColors(containerColor = Color.White),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Button(
-                    onClick = openReports,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = purple),
-                ) {
+                Button(onClick = openReports, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = purple)) {
                     Icon(Icons.Default.Assessment, null)
                     Text("  Reports & Customer Khata")
                 }
-                Button(
-                    onClick = openBackup,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = navy),
-                ) {
+                Button(onClick = openBackup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = navy)) {
                     Icon(Icons.Default.Backup, null)
                     Text("  Encrypted Backup Banaye")
                 }
+                Button(onClick = openRestore, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B1E1E))) {
+                    Icon(Icons.Default.Restore, null)
+                    Text("  Backup Restore / Import")
+                }
+                Text("Restore current records replace karta hai; preview aur confirmation mandatory hai.", color = Color.Gray, fontSize = 12.sp)
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
