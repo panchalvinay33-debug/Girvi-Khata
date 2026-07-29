@@ -1,6 +1,6 @@
 # Girvi Khata — Current Project State
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 This file is the quickest authoritative summary of the repository. Detailed history remains in the other ledgers.
 
@@ -19,25 +19,25 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 
 ## Latest testing build
 
-- Build: `v0.8.0-alpha.8`
-- Version code/name: `8` / `0.8.0-testing`
+- Build: `v0.9.0-alpha.9`
+- Version code/name: `9` / `0.9.0-testing`
 - Package: `com.girvikhata.app.testing`
-- Source commit: `c289c31b94ed260d6a686c93ee45489f359ac628`
-- Android workflow: `30477959563`
-- Security Guard: `30477959615`
-- Artifact ID: `8734522129`
-- APK size: `19,993,086 bytes`
-- APK SHA-256: `74965918d7a97c33f28faaad8df81486a0342788009d603c4de5057f984a3d96`
-- CI status: unit tests, Android compilation, stable testing signing, artifact upload, and Security Guard passed.
-- Owner status: physical-device testing pending.
+- Source commit: `9d31f06c7a5517da3f3afbbb9b1f5435e2c6c9bd`
+- Android workflow: `30480566880`
+- Security Guard: `30480566699`
+- Artifact ID: `8735582885`
+- APK size: `20,025,854 bytes`
+- APK SHA-256: `698dda752567b1f4f3e28500d95c8c3e21f7e2bd61ed09bb818a15b7145eeb17`
+- CI status: unit tests, Compose/Android compilation, stable testing signing, artifact upload, Security Guard, ZIP integrity, and APK integrity passed.
+- Owner status: Alpha 8 PIN recovery/restore and Alpha 9 customer/date workflows remain physical-device test pending.
 
-## Alpha 7 regression and Alpha 8 correction
+## PIN regression correction
 
-- Owner reported that the previously configured PIN was not accepted after installing Alpha 7.
-- No package-ID or preference-key migration change was found between the earlier testing package and Alpha 7.
-- Alpha 8 adds a data-preserving PIN recovery path through strong biometric or device credential authentication.
-- PIN recovery replaces only the PIN verifier and lockout state; customer, girvi, category, payment, reversal, release, report, and backup data are not intentionally modified.
-- Alpha 7 is superseded for further testing.
+- Owner reported that the previously configured PIN was not accepted after Alpha 7.
+- No package-ID or preference-key migration change was found in source.
+- Alpha 8 and later include data-preserving PIN recovery through strong biometric or device credential authentication.
+- PIN recovery replaces only the PIN verifier and lockout state; business records are not intentionally modified.
+- Alpha 7 is superseded.
 
 ## Current visible application scope
 
@@ -55,9 +55,13 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 ### Girvi Tools Test
 
 - Reports and customer khata
+- Customer profile with mobile/address
+- Customer name/mobile/address editing with encrypted persistence
+- Duplicate-mobile rejection and linked-girvi name propagation
+- Deletion only for customers with no girvi history
 - Active/released/all filters
-- Collection ranges and CSV sharing
-- Receipt and customer-statement sharing
+- Today, 7-day, 30-day, all-time, and exact custom From/To collection ranges
+- CSV, receipt, and customer-statement sharing
 - Portable encrypted `.gkb` backup creation
 - Verified `.gkb` restore/import
 - Data-preserving PIN recovery
@@ -79,16 +83,17 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - Corrupt local-store loading can still fall back to defaults; production must instead expose explicit recovery without silent replacement.
 - Google Drive automatic upload, account authorization, read-back verification, retention, scheduling, and cloud restore discovery are not implemented.
 - Reports/Tools and the main app still use two launcher entries inside one package.
+- App-wide screenshot/recent-app preview blocking is pending.
 - PDF/thermal printing, media vault, final receipt templates, and production signing are pending.
-- PIN recovery and destructive restore require owner physical-device testing before approval.
+- Alpha 8/9 workflows require owner physical-device testing before approval.
 
 ## Next priority order
 
-1. Owner test Alpha 8 upgrade, PIN recovery, backup creation, and restore on dummy data.
-2. Fix any physical-device regression before new scope is approved.
-3. Merge Reports/Backup/Restore into one in-app navigation structure and remove the second launcher entry.
-4. Add customer profile/edit/delete-safe UI and custom date picker.
-5. Replace the interim snapshot store with a transaction-safe encrypted database and explicit corrupt-store recovery.
+1. Owner test Alpha 9 as an in-place update, including PIN recovery, backup/restore, customer editing and custom dates.
+2. Fix any physical-device regression before advancing the approved baseline.
+3. Merge Reports/Backup/Restore/PIN Recovery into one in-app navigation structure and remove the second launcher entry.
+4. Add app-wide privacy-screen protection and explicit corrupt-local-store recovery.
+5. Replace the interim snapshot store with a transaction-safe encrypted database.
 6. Make the repository private, then implement owner-authorized Google Drive app-data backup with upload/read-back verification and retention.
 
 ## Permanent delivery rule
