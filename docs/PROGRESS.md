@@ -139,8 +139,26 @@ This file must be updated with every meaningful code, design, security, backup, 
 - ✅ Activity lifecycle wired to the 30-second background auto-lock policy.
 - ✅ Testing version advanced to `0.3.0-testing`, version code 3, retaining the permanent testing package/signature.
 - ✅ Alpha 2 encrypted records remain readable through the v1-to-v2 migration fallback.
-- 🚧 Android unit tests, Compose compilation, signing, APK packaging, and Security Guard are running.
-- 🧪 Next physical test must verify direct upgrade over Alpha 2, old record retention, fingerprint unlock, background lock, multiple-item save, category safety, and calculation detail.
+- ✅ Android unit tests, Compose compilation, signing, APK packaging, and Security Guard passed.
+- 🧪 Alpha 3 physical-device approval remains pending.
+
+## 2026-07-29 — Payment, settlement and release foundation
+
+- ✅ Added exact payment allocation for interest-first, principal-first, and custom splits.
+- ✅ Charges, interest, and principal allocations must reconcile exactly to the applied payment.
+- ✅ Overpayment is detected explicitly instead of silently changing balances.
+- ✅ Immutable payment-ledger model added; past payment entries are never edited or deleted.
+- ✅ Reversal requires a new linked reversal entry and a reason.
+- ✅ Receipt numbering scans the highest sequence for the current date.
+- ✅ Settlement view calculates principal due, interest due, charges due, and total due from the effective ledger.
+- ✅ Manual interest adjustments remain separately recorded from calculated interest.
+- ✅ Release policy blocks item release while dues remain unless an explicit owner override is recorded.
+- ✅ Encrypted snapshot schema upgraded from v2 to v3 with backward-compatible defaults for Alpha 2/3 records.
+- ✅ Payment entries, payment mode, notes, reversal links, release timestamp, release note, and manual-interest adjustments now persist encrypted.
+- ✅ Added tests for allocation order, custom reconciliation, overpayment, reversals, receipt sequencing, release blocking, owner override, and rupee-to-paise rounding.
+- 🚧 Android CI is validating schema v3 and the new accounting tests.
+- ⏳ Next visible wiring: receive-payment form, allocation preview, payment history, reversal confirmation, settlement summary, and release confirmation screen.
+- ⚠️ Alpha 3 must still be physically tested before any merge to `main`.
 
 ## Update rule
 
