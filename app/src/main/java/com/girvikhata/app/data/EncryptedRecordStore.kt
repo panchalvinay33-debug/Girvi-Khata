@@ -8,55 +8,175 @@ import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
+sealed interface RecordStoreLoadState {
+    data class Ready(val snapshot: AppSnapshot, val recoveredFromSafetyCopy: Boolean = false) : RecordStoreLoadState
+    data class Corrupt(val reason: String, val safetyCopiesChecked: Int) : RecordStoreLoadState
+}
+
+class RecordStoreCorruptionException(message: String) : IllegalStateException(message)
+
 /**
- * Encrypted snapshot store used during testing milestones.
+ * App-private encrypted snapshot store.
  *
- * The binary envelope stays at format v1 while the JSON schema is versioned independently.
- * Schema v3 adds immutable payment-ledger entries and release metadata, while retaining
- * backward compatibility with Alpha 2/3 records.
+ * Alpha 11 removes the old silent-corruption fallback. Existing data is now protected by:
+ * - verified temporary writes before primary replacement,
+ * - a rotating set of encrypted pre-save safety copies,
+ * - automatic recovery from the newest valid safety copy,
+ * - quarantine of a damaged primary file,
+ * - explicit corruption failure when no valid copy remains.
  */
 class EncryptedRecordStore(
     context: Context,
     private val keyManager: DeviceKeyManager = DeviceKeyManager(),
 ) {
     private val file = File(context.filesDir, FILE_NAME)
+    private val safetyDirectory = File(context.filesDir, SAFETY_DIRECTORY)
+    private val quarantineDirectory = File(context.filesDir, QUARANTINE_DIRECTORY)
 
     @Synchronized
-    fun load(): AppSnapshot {
-        if (!file.exists()) return AppSnapshot.defaults()
-        return runCatching {
-            DataInputStream(file.inputStream().buffered()).use { input ->
-                require(input.readInt() == MAGIC) { "Invalid encrypted store" }
-                val version = input.readInt()
-                require(version == FORMAT_VERSION) { "Unsupported encrypted store version" }
-                val iv = ByteArray(input.readInt()).also(input::readFully)
-                val ciphertext = ByteArray(input.readInt()).also(input::readFully)
-                val plaintext = keyManager.decrypt(
-                    EncryptedPayload(ciphertext = ciphertext, iv = iv),
-                    associatedData = ASSOCIATED_DATA,
-                )
-                decode(String(plaintext, Charsets.UTF_8))
+    fun loadState(): RecordStoreLoadState {
+        if (!file.exists()) return RecordStoreLoadState.Ready(AppSnapshot.defaults())
+
+        runCatching { readEnvelope(file) }
+            .onSuccess { return RecordStoreLoadState.Ready(it) }
+
+        val safetyCopies = safetyFilesNewestFirst()
+        safetyCopies.forEach { candidate ->
+            runCatching { readEnvelope(candidate) }.onSuccess { recovered ->
+                runCatching { promoteSafetyCopy(candidate) }
+                    .getOrElse { return RecordStoreLoadState.Corrupt("Safety copy mili, lekin primary recovery save nahi ho saki", safetyCopies.size) }
+                return RecordStoreLoadState.Ready(recovered, recoveredFromSafetyCopy = true)
             }
-        }.getOrElse { AppSnapshot.defaults() }
+        }
+
+        return RecordStoreLoadState.Corrupt(
+            reason = "Encrypted local records verify/decrypt nahi ho sake",
+            safetyCopiesChecked = safetyCopies.size,
+        )
+    }
+
+    @Synchronized
+    fun load(): AppSnapshot = when (val state = loadState()) {
+        is RecordStoreLoadState.Ready -> state.snapshot
+        is RecordStoreLoadState.Corrupt -> throw RecordStoreCorruptionException(
+            "${state.reason}. ${state.safetyCopiesChecked} safety copies checked.",
+        )
     }
 
     @Synchronized
     fun save(snapshot: AppSnapshot) {
-        val plaintext = encode(snapshot.copy(schemaVersion = CURRENT_SCHEMA)).toByteArray(Charsets.UTF_8)
-        val encrypted = keyManager.encrypt(plaintext, associatedData = ASSOCIATED_DATA)
-        val temporary = File(file.parentFile, "$FILE_NAME.tmp")
-        DataOutputStream(temporary.outputStream().buffered()).use { output ->
-            output.writeInt(MAGIC)
-            output.writeInt(FORMAT_VERSION)
-            output.writeInt(encrypted.iv.size)
-            output.write(encrypted.iv)
-            output.writeInt(encrypted.ciphertext.size)
-            output.write(encrypted.ciphertext)
-            output.flush()
+        val normalized = snapshot.copy(schemaVersion = CURRENT_SCHEMA)
+        validateSnapshot(normalized)
+
+        if (file.exists()) {
+            // Never overwrite a damaged primary with a normal business operation.
+            readEnvelope(file)
+            createSafetyCopy(file)
         }
-        check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true })
+
+        val temporary = File(file.parentFile, "$FILE_NAME.tmp")
+        runCatching {
+            writeEnvelope(temporary, normalized)
+            val verified = readEnvelope(temporary)
+            check(verified == normalized) { "Encrypted store read-back verification failed" }
+            replacePrimaryWith(temporary)
+            check(readEnvelope(file) == normalized) { "Primary encrypted store verification failed" }
+            pruneFiles(safetyDirectory, MAX_SAFETY_COPIES)
+            pruneFiles(quarantineDirectory, MAX_QUARANTINE_COPIES)
+        }.onFailure {
+            temporary.delete()
+            throw it
+        }
+    }
+
+    private fun writeEnvelope(target: File, snapshot: AppSnapshot) {
+        target.parentFile?.mkdirs()
+        val plaintext = encode(snapshot).toByteArray(Charsets.UTF_8)
+        val encrypted = keyManager.encrypt(plaintext, associatedData = ASSOCIATED_DATA)
+        FileOutputStream(target).use { stream ->
+            DataOutputStream(stream.buffered()).use { output ->
+                output.writeInt(MAGIC)
+                output.writeInt(FORMAT_VERSION)
+                output.writeInt(encrypted.iv.size)
+                output.write(encrypted.iv)
+                output.writeInt(encrypted.ciphertext.size)
+                output.write(encrypted.ciphertext)
+                output.flush()
+            }
+            stream.fd.sync()
+        }
+    }
+
+    private fun readEnvelope(source: File): AppSnapshot {
+        require(source.exists() && source.isFile) { "Encrypted store file missing" }
+        require(source.length() in MIN_ENVELOPE_BYTES..MAX_ENVELOPE_BYTES) { "Encrypted store size invalid" }
+        return DataInputStream(source.inputStream().buffered()).use { input ->
+            require(input.readInt() == MAGIC) { "Invalid encrypted store" }
+            require(input.readInt() == FORMAT_VERSION) { "Unsupported encrypted store version" }
+            val ivLength = input.readInt()
+            require(ivLength in MIN_IV_BYTES..MAX_IV_BYTES) { "Encrypted store IV length invalid" }
+            val iv = ByteArray(ivLength).also(input::readFully)
+            val ciphertextLength = input.readInt()
+            require(ciphertextLength in MIN_CIPHERTEXT_BYTES..MAX_CIPHERTEXT_BYTES) { "Encrypted store payload length invalid" }
+            val ciphertext = ByteArray(ciphertextLength).also(input::readFully)
+            require(input.read() == -1) { "Encrypted store has trailing bytes" }
+            val plaintext = keyManager.decrypt(
+                EncryptedPayload(ciphertext = ciphertext, iv = iv),
+                associatedData = ASSOCIATED_DATA,
+            )
+            decode(String(plaintext, Charsets.UTF_8)).also(::validateSnapshot)
+        }
+    }
+
+    private fun createSafetyCopy(primary: File) {
+        safetyDirectory.mkdirs()
+        val target = File(safetyDirectory, "records-${System.currentTimeMillis()}.bin")
+        primary.copyTo(target, overwrite = false)
+        check(readEnvelope(target) == readEnvelope(primary)) { "Safety-copy verification failed" }
+        pruneFiles(safetyDirectory, MAX_SAFETY_COPIES)
+    }
+
+    private fun promoteSafetyCopy(candidate: File) {
+        quarantineDirectory.mkdirs()
+        if (file.exists()) {
+            val quarantine = File(quarantineDirectory, "damaged-${System.currentTimeMillis()}.bin")
+            file.copyTo(quarantine, overwrite = false)
+        }
+        val temporary = File(file.parentFile, "$FILE_NAME.recovery.tmp")
+        candidate.copyTo(temporary, overwrite = true)
+        readEnvelope(temporary)
+        replacePrimaryWith(temporary)
+        readEnvelope(file)
+        pruneFiles(quarantineDirectory, MAX_QUARANTINE_COPIES)
+    }
+
+    private fun replacePrimaryWith(temporary: File) {
+        if (file.exists() && !file.delete()) error("Old encrypted store replace nahi ho saka")
+        if (!temporary.renameTo(file)) {
+            temporary.copyTo(file, overwrite = true)
+            check(temporary.delete()) { "Temporary encrypted file cleanup failed" }
+        }
+    }
+
+    private fun safetyFilesNewestFirst(): List<File> =
+        safetyDirectory.listFiles()?.filter(File::isFile)?.sortedByDescending(File::lastModified).orEmpty()
+
+    private fun pruneFiles(directory: File, keep: Int) {
+        directory.listFiles()?.filter(File::isFile)?.sortedByDescending(File::lastModified)?.drop(keep)?.forEach(File::delete)
+    }
+
+    private fun validateSnapshot(snapshot: AppSnapshot) {
+        require(snapshot.schemaVersion == CURRENT_SCHEMA) { "Unsupported local schema" }
+        require(snapshot.customers.map { it.id }.distinct().size == snapshot.customers.size) { "Duplicate customer ID" }
+        require(snapshot.girvis.map { it.id }.distinct().size == snapshot.girvis.size) { "Duplicate girvi ID" }
+        require(snapshot.girvis.map { it.girviNumber }.distinct().size == snapshot.girvis.size) { "Duplicate girvi number" }
+        val customerIds = snapshot.customers.map { it.id }.toSet()
+        require(snapshot.girvis.all { it.customerId in customerIds }) { "Girvi customer link missing" }
+        require(snapshot.girvis.all { it.principalPaise > 0L && it.createdAt > 0L }) { "Girvi amount/timestamp invalid" }
+        require(snapshot.girvis.all { it.status in setOf("ACTIVE", "RELEASED") }) { "Girvi status invalid" }
     }
 
     private fun encode(snapshot: AppSnapshot): String = JSONObject().apply {
@@ -135,6 +255,7 @@ class EncryptedRecordStore(
 
     private fun decode(value: String): AppSnapshot {
         val root = JSONObject(value)
+        require(root.optInt("schemaVersion", CURRENT_SCHEMA) <= CURRENT_SCHEMA) { "Future local schema unsupported" }
         val customers = root.optJSONArray("customers") ?: JSONArray()
         val categories = root.optJSONArray("categories") ?: JSONArray()
         val girvis = root.optJSONArray("girvis") ?: JSONArray()
@@ -181,13 +302,7 @@ class EncryptedRecordStore(
                             }
                         }
                     } else {
-                        listOf(
-                            GirviItemRecord(
-                                categoryName = legacyCategory,
-                                itemName = legacyItem,
-                                grossWeightGrams = legacyWeight,
-                            ),
-                        )
+                        listOf(GirviItemRecord(categoryName = legacyCategory, itemName = legacyItem, grossWeightGrams = legacyWeight))
                     }
                     val paymentArray = optJSONArray("payments") ?: JSONArray()
                     val decodedPayments = List(paymentArray.length()) { paymentIndex ->
@@ -238,9 +353,19 @@ class EncryptedRecordStore(
 
     companion object {
         private const val FILE_NAME = "business_records_v1.bin"
+        private const val SAFETY_DIRECTORY = "record_safety_copies"
+        private const val QUARANTINE_DIRECTORY = "record_quarantine"
         private const val MAGIC = 0x474B5631
         private const val FORMAT_VERSION = 1
         private const val CURRENT_SCHEMA = 3
+        private const val MAX_SAFETY_COPIES = 5
+        private const val MAX_QUARANTINE_COPIES = 2
+        private const val MIN_IV_BYTES = 12
+        private const val MAX_IV_BYTES = 32
+        private const val MIN_CIPHERTEXT_BYTES = 16
+        private const val MAX_CIPHERTEXT_BYTES = 128 * 1024 * 1024
+        private const val MIN_ENVELOPE_BYTES = 28L
+        private const val MAX_ENVELOPE_BYTES = 129L * 1024L * 1024L
         private val ASSOCIATED_DATA = "girvi-khata-local-store-v1".toByteArray(Charsets.UTF_8)
     }
 }
