@@ -12,6 +12,11 @@ class SecurityPreferences(context: Context) {
 
     fun hasPin(): Boolean = preferences.contains(KEY_HASH) && preferences.contains(KEY_SALT)
 
+    fun verifierStatus(): PinVerifierStatus {
+        if (!hasPin()) return PinVerifierStatus.NOT_CONFIGURED
+        return if (readStoredPin() == null) PinVerifierStatus.CORRUPT else PinVerifierStatus.READY
+    }
+
     fun savePin(pin: CharArray) {
         val stored = hasher.create(pin)
         preferences.edit()
@@ -20,7 +25,21 @@ class SecurityPreferences(context: Context) {
             .putInt(KEY_ITERATIONS, stored.iterations)
             .putInt(KEY_FAILURES, 0)
             .putLong(KEY_LOCKED_UNTIL, 0L)
-            .apply()
+            .commit()
+    }
+
+    /**
+     * Called only after Android biometric/device authentication succeeds.
+     * Clears PIN verifier and lockout metadata, never business records or encryption keys.
+     */
+    fun clearPinAfterAuthenticatedRecovery() {
+        preferences.edit()
+            .remove(KEY_HASH)
+            .remove(KEY_SALT)
+            .remove(KEY_ITERATIONS)
+            .putInt(KEY_FAILURES, 0)
+            .putLong(KEY_LOCKED_UNTIL, 0L)
+            .commit()
     }
 
     fun verify(pin: CharArray, now: Instant = Instant.now()): PinVerificationResult {
@@ -32,7 +51,7 @@ class SecurityPreferences(context: Context) {
 
         val stored = readStoredPin() ?: run {
             pin.fill('\u0000')
-            return PinVerificationResult.NotConfigured
+            return if (hasPin()) PinVerificationResult.CorruptVerifier else PinVerificationResult.NotConfigured
         }
 
         val valid = runCatching { hasher.verify(pin, stored) }.getOrDefault(false)
@@ -53,18 +72,20 @@ class SecurityPreferences(context: Context) {
         val hash = preferences.getString(KEY_HASH, null) ?: return null
         val salt = preferences.getString(KEY_SALT, null) ?: return null
         return runCatching {
-            StoredPin(
-                hash = Base64.decode(hash, Base64.NO_WRAP),
-                salt = Base64.decode(salt, Base64.NO_WRAP),
-                iterations = preferences.getInt(KEY_ITERATIONS, 210_000),
-            )
+            val decodedHash = Base64.decode(hash, Base64.NO_WRAP)
+            val decodedSalt = Base64.decode(salt, Base64.NO_WRAP)
+            val iterations = preferences.getInt(KEY_ITERATIONS, 210_000)
+            require(decodedHash.size == 32) { "Invalid PIN hash" }
+            require(decodedSalt.size >= 16) { "Invalid PIN salt" }
+            require(iterations in 100_000..2_000_000) { "Invalid PIN iterations" }
+            StoredPin(hash = decodedHash, salt = decodedSalt, iterations = iterations)
         }.getOrNull()
     }
 
     private fun readLockState(): LockState {
         val until = preferences.getLong(KEY_LOCKED_UNTIL, 0L)
         return LockState(
-            failedAttempts = preferences.getInt(KEY_FAILURES, 0),
+            failedAttempts = preferences.getInt(KEY_FAILURES, 0).coerceAtLeast(0),
             lockedUntil = until.takeIf { it > 0 }?.let(Instant::ofEpochMilli),
         )
     }
@@ -73,7 +94,7 @@ class SecurityPreferences(context: Context) {
         preferences.edit()
             .putInt(KEY_FAILURES, state.failedAttempts)
             .putLong(KEY_LOCKED_UNTIL, state.lockedUntil?.toEpochMilli() ?: 0L)
-            .apply()
+            .commit()
     }
 
     companion object {
@@ -86,9 +107,12 @@ class SecurityPreferences(context: Context) {
     }
 }
 
+enum class PinVerifierStatus { NOT_CONFIGURED, READY, CORRUPT }
+
 sealed interface PinVerificationResult {
     data object Success : PinVerificationResult
     data object NotConfigured : PinVerificationResult
+    data object CorruptVerifier : PinVerificationResult
     data class Locked(val untilMillis: Long) : PinVerificationResult
     data class Failure(val attempts: Int, val lockedUntilMillis: Long) : PinVerificationResult
 }
