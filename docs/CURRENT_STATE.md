@@ -10,27 +10,27 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - Pull request: draft PR #1
 - `main` has not been updated or merged.
 - No milestone may enter `main` without explicit owner physical-device approval.
-- Repository is currently public; do not add OAuth credentials, production signing material, real customer records, or real backup files until it is private.
+- Repository is currently public; do not add OAuth credentials, production signing material, real customer records or real backup files until it is private.
 
 ## Owner-approved baseline
 
 - Latest owner-approved functional baseline: `v0.9.0-alpha.9`.
-- Alpha 9 includes the Alpha 8 PIN recovery/restore scope plus customer profile editing, duplicate-mobile protection, safe unused-customer deletion and exact custom collection dates.
+- Alpha 9 includes authenticated PIN recovery/restore, customer profile editing, duplicate-mobile protection, safe unused-customer deletion and exact custom collection dates.
 - Alpha 7 remains superseded because the previous PIN was not accepted on the owner's device.
 
 ## Latest testing build
 
-- Build: `v0.10.0-alpha.10`
-- Version code/name: `10` / `0.10.0-testing`
+- Build: `v0.11.0-alpha.11`
+- Version code/name: `11` / `0.11.0-testing`
 - Package: `com.girvikhata.app.testing`
-- Source commit: `fad678462cf801e682acf6565fccf4978248fde7`
-- Android workflow: `30482752429`
-- Security Guard: `30482752531`
-- Artifact ID: `8736432865`
-- APK size: `20,025,846 bytes`
-- APK SHA-256: `a50da4c6c678723f5d9b0284d8423d97af009823266564b0dbc11378e2f9ed60`
+- Source commit: `ed866d3580e747108ed5a4a53a0b36798a3eba6a`
+- Android workflow: `30485337748`
+- Security Guard: `30485348627`
+- Artifact ID: `8737489498`
+- APK size: `20,042,234 bytes`
+- APK SHA-256: `a1f95823e34ca86cb762e2d545984ca28699a1c470089203bb03fce24f4f0741`
 - CI status: unit tests, Compose/Android compilation, stable testing signing, artifact upload, Security Guard, ZIP integrity and APK integrity passed.
-- Owner status: Alpha 10 single-launcher/privacy physical-device test pending.
+- Owner status: Alpha 10 single-launcher/privacy and Alpha 11 local-store recovery physical-device tests pending.
 
 ## Current visible application scope
 
@@ -47,6 +47,7 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - Immutable payment history and linked reversal
 - Release blocking, owner override and release metadata
 - Floating Tools entry for reports, backup, restore and security
+- Explicit `Data Recovery Required` screen instead of silent empty records when all encrypted local copies fail
 
 ### Internal Tools
 
@@ -55,38 +56,42 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - Today, 7-day, 30-day, all-time and exact custom From/To collection ranges
 - CSV, receipt and customer-statement sharing
 - Portable encrypted `.gkb` backup creation
-- Verified `.gkb` restore/import
+- Verified `.gkb` restore/import, including replacement of a quarantined damaged primary
 - Data-preserving PIN recovery
-- Tools is no longer a separate launcher icon; `MainActivity` is the only exported launcher activity.
+- During local corruption, Reports and new-backup creation are blocked while Restore and PIN Recovery remain available
+- Tools is no longer a separate launcher icon; `MainActivity` is the only exported launcher activity
 
 ## Current storage and security
 
-- Local business records are stored in an app-private AES-256-GCM encrypted snapshot protected by Android Keystore.
+- Local business records use an app-private AES-256-GCM encrypted snapshot protected by Android Keystore.
 - Snapshot schema is v3.
+- Normal saves validate relationships, create a rotating encrypted pre-save safety copy, fsync a temporary file, decrypt/read back before replacement and verify the final primary.
+- Latest five local safety copies and latest two damaged-file quarantine copies are retained.
+- A damaged primary tries newest safety copies automatically and promotes the first verified copy.
+- If no valid local copy remains, the app blocks Dashboard and requires verified `.gkb` restore.
 - Portable backups use AES-256-GCM with a recovery-passphrase key derived by PBKDF2-HMAC-SHA256 at 310,000 iterations.
 - Portable packages use random salt and nonce and authenticated tamper detection.
 - Restore validates schema, IDs, customer/girvi links, payment reconciliation, status values, timestamps, counts and package integrity before replacement.
-- Restore creates an app-private pre-restore safety backup and performs post-save read-back count verification.
 - Android automatic backup/device transfer remains disabled.
-- A central application lifecycle guard applies Android `FLAG_SECURE` to every activity window to block screenshots, ordinary screen recording and readable recent-app previews where supported.
+- A central lifecycle guard applies Android `FLAG_SECURE` to every activity window where supported.
 - Only `MainActivity` is exported; Tools, Reports, Backup, Restore and PIN Recovery are internal activities.
 - No developer master key, admin backdoor, central business database, ads or analytics exists.
 
 ## Important limitations
 
-- Alpha 10 privacy behavior and old Tools-icon removal still require owner physical-device confirmation; OEM launcher/capture behavior can differ.
+- Alpha 10 privacy behavior, old Tools-icon removal and Alpha 11 fault recovery require owner physical-device confirmation.
 - Tools currently opens as an internal activity through a floating button rather than a native bottom-navigation page.
-- Persistence is still an interim encrypted snapshot file, not the final transactional encrypted relational database.
-- Corrupt local-store loading can still fall back to defaults; production must instead expose explicit recovery without silent replacement.
+- Persistence is still an encrypted snapshot file, not the final transactional encrypted relational database.
+- Local safety/quarantine copies are device-bound and disappear on uninstall or device loss; an external `.gkb` remains mandatory.
 - Google Drive automatic upload, account authorization, read-back verification, retention, scheduling and cloud restore discovery are not implemented.
 - PDF/thermal printing, media vault, final receipt templates and production signing are pending.
 
 ## Next priority order
 
-1. Owner test Alpha 10 as an in-place update: one launcher icon, Tools access, privacy capture blocking and auto-lock regression.
-2. Fix any physical-device issue before advancing the approved baseline.
-3. Add explicit corrupt-local-store detection/recovery so unreadable records never silently appear as an empty ledger.
-4. Replace the interim snapshot store with a transaction-safe encrypted relational database and migration tests.
+1. Owner test Alpha 11 as an in-place update, including all Alpha 10 navigation/privacy checks.
+2. Confirm normal verified-save persistence and recovery behavior using disposable dummy data only.
+3. Fix any physical-device regression before advancing the approved baseline.
+4. Replace the snapshot store with a transaction-safe encrypted relational database and migration tests.
 5. Add critical-change backup queue/status and local verified-backup history.
 6. Make the repository private, then implement owner-authorized Google Drive app-data backup with upload/read-back verification and retention.
 
