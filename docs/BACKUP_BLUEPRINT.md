@@ -25,14 +25,14 @@ This is an interim testing store, not the final production database. Stable prod
 
 - Complete business snapshot serializer.
 - AES-256-GCM authenticated encryption.
-- Recovery key derived from owner passphrase by PBKDF2-HMAC-SHA256 with 310,000 iterations.
+- Recovery key derived from the owner's backup passcode by PBKDF2-HMAC-SHA256 with 310,000 iterations.
 - Random 16-byte salt and 12-byte nonce per package.
 - Versioned package header, schema version, creation time, KDF settings, bounded ciphertext length, and trailing-data rejection.
-- Minimum recovery phrase: 12 characters with letters and digits.
-- Wrong passphrase and tampered/corrupt package use a safe failure path.
-- Package limit: 128 MB.
+- The owner-created backup passcode must have at least 12 characters and include letters and digits.
+- Wrong passcode and tampered/corrupt package use a safe failure path.
+- Package limit is 128 MB.
 - Temporary shared backup files remain in app-private cache and receive only temporary read permission through FileProvider.
-- Recovery phrases are not persisted in preferences, logs, source, analytics, or package metadata.
+- Owner backup passcodes are not persisted in preferences, logs, source, analytics, or package metadata.
 
 ## Implemented backup contents
 
@@ -49,7 +49,7 @@ This is an interim testing store, not the final production database. Stable prod
 
 1. Require existing app PIN.
 2. Select `.gkb` package through Android document picker.
-3. Request recovery passphrase.
+3. Request the owner-created backup passcode.
 4. Verify package structure and authenticated encryption.
 5. Decode the snapshot into temporary memory.
 6. Reject unsupported schema, malformed payload, duplicate IDs/numbers, missing customer links, invalid quantities/timestamps/status, or unreconciled payments.
@@ -62,7 +62,7 @@ This is an interim testing store, not the final production database. Stable prod
 
 ## Pre-restore safety storage
 
-- Current snapshot is protected with the same recovery passphrase before replacement.
+- Current snapshot is protected with the same owner-created backup passcode before replacement.
 - Stored in app-private `restore_safety` storage.
 - Latest three safety packages are retained.
 - These copies are not a substitute for an external backup because uninstalling the app removes app-private files.
@@ -73,7 +73,7 @@ This is an interim testing store, not the final production database. Stable prod
 - The six-digit app PIN never encrypts portable backups.
 - PIN recovery may replace the local PIN verifier and lockout state only after strong biometric or device-credential authentication.
 - PIN recovery must not intentionally rewrite customers, girvi, payments, reports, or backup packages.
-- Recovery phrase and device credential remain separate security factors.
+- Owner backup passcode and device credential remain separate security factors.
 
 ## Export and reporting rules
 
@@ -113,7 +113,7 @@ A previous verified backup is never deleted until a newer package passes complet
 
 ## Failure handling
 
-- Wrong passphrase: reveal no partial business data and do not touch current records.
+- Wrong backup passcode: reveal no partial business data and do not touch current records.
 - Corrupt/tampered package: reject and retain current records.
 - Unsupported schema: reject until a tested migration exists.
 - Validation mismatch: reject before replacement.
@@ -125,7 +125,7 @@ A previous verified backup is never deleted until a newer package passes complet
 
 ## Secret-management rules
 
-Never commit OAuth secrets, `google-services.json`, signing keystores/passwords, recovery phrases, encryption keys, real databases/backups/exports/media, or credential-bearing configuration.
+Never commit OAuth secrets, `google-services.json`, signing keystores/passwords, owner backup passcodes, encryption keys, real databases/backups/exports/media, or credential-bearing configuration.
 
 ## Verification definition
 
