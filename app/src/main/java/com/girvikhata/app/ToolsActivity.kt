@@ -34,13 +34,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.data.RecordStoreLoadState
 
 class ToolsActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val storeState = EncryptedRecordStore(applicationContext).loadState()
+        val recordsAvailable = storeState is RecordStoreLoadState.Ready
+        val warning = (storeState as? RecordStoreLoadState.Corrupt)?.let {
+            "Local encrypted records verify nahi hue. Reports/backup blocked hain; pehle verified .gkb restore karein."
+        }
         setContent {
             MaterialTheme {
                 ToolsScreen(
+                    recordsAvailable = recordsAvailable,
+                    warning = warning,
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
                     openRestore = { startActivity(Intent(this, RestoreActivity::class.java)) },
@@ -54,6 +63,8 @@ class ToolsActivity : FragmentActivity() {
 
 @Composable
 private fun ToolsScreen(
+    recordsAvailable: Boolean,
+    warning: String?,
     openReports: () -> Unit,
     openBackup: () -> Unit,
     openRestore: () -> Unit,
@@ -78,11 +89,22 @@ private fun ToolsScreen(
             colors = CardDefaults.cardColors(containerColor = Color.White),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = openReports, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = purple)) {
+                warning?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
+                Button(
+                    onClick = openReports,
+                    enabled = recordsAvailable,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = purple),
+                ) {
                     Icon(Icons.Default.Assessment, null)
                     Text("  Reports & Customer Khata")
                 }
-                Button(onClick = openBackup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = navy)) {
+                Button(
+                    onClick = openBackup,
+                    enabled = recordsAvailable,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = navy),
+                ) {
                     Icon(Icons.Default.Backup, null)
                     Text("  Encrypted Backup Banaye")
                 }
