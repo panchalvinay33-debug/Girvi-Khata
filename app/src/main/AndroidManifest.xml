@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
+        android:name=".GirviKhataApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
@@ -41,14 +42,9 @@
 
         <activity
             android:name=".ToolsActivity"
-            android:exported="true"
-            android:label="Girvi Tools Test"
-            android:screenOrientation="portrait">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Girvi Khata Tools"
+            android:screenOrientation="portrait" />
 
         <activity
             android:name=".MainActivity"
