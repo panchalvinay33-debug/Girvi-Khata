@@ -1,5 +1,6 @@
 package com.girvikhata.app
 
+import android.app.DatePickerDialog
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -18,9 +19,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -44,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.AppSnapshot
+import com.girvikhata.app.data.CustomerRecord
 import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.domain.CustomerAccountOperations
 import com.girvikhata.app.domain.DateRange
 import com.girvikhata.app.domain.GirviStatusFilter
 import com.girvikhata.app.domain.ReportingEngine
@@ -61,6 +68,7 @@ import com.girvikhata.app.export.SecureShare
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.text.DateFormat
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -68,6 +76,7 @@ import java.util.Locale
 private val ReportsNavy = Color(0xFF171752)
 private val ReportsPurple = Color(0xFF5146B8)
 private val ReportsGreen = Color(0xFF138A4A)
+private val ReportsRed = Color(0xFF9B1C1C)
 private val ReportsBackground = Color(0xFFF6F7FB)
 
 class ReportsActivity : FragmentActivity() {
@@ -80,6 +89,7 @@ class ReportsActivity : FragmentActivity() {
                 SecureReportsRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
                     loadSnapshot = store::load,
+                    saveSnapshot = store::save,
                     close = ::finish,
                 )
             }
@@ -88,11 +98,13 @@ class ReportsActivity : FragmentActivity() {
 }
 
 private enum class ReportsPage { OVERVIEW, KHATA, GIRVI, COLLECTIONS }
+private enum class CollectionPreset { TODAY, SEVEN_DAYS, THIRTY_DAYS, ALL, CUSTOM }
 
 @Composable
 private fun SecureReportsRoot(
     verifyPin: (String) -> PinVerificationResult,
     loadSnapshot: () -> AppSnapshot,
+    saveSnapshot: (AppSnapshot) -> Unit,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
@@ -103,7 +115,14 @@ private fun SecureReportsRoot(
             unlocked = true
         }, close)
     } else {
-        ReportsHome(snapshot ?: AppSnapshot.defaults(), close)
+        ReportsHome(
+            snapshot = snapshot ?: AppSnapshot.defaults(),
+            onSnapshotChanged = { updated ->
+                saveSnapshot(updated)
+                snapshot = updated
+            },
+            close = close,
+        )
     }
 }
 
@@ -128,8 +147,8 @@ private fun ReportsPinScreen(
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
-                    pin,
-                    { pin = it.filter(Char::isDigit).take(6) },
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(6) },
                     label = { Text("6-digit PIN") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
@@ -158,7 +177,7 @@ private fun ReportsPinScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReportsHome(snapshot: AppSnapshot, close: () -> Unit) {
+private fun ReportsHome(snapshot: AppSnapshot, onSnapshotChanged: (AppSnapshot) -> Unit, close: () -> Unit) {
     var page by rememberSaveable { mutableStateOf(ReportsPage.OVERVIEW) }
     Scaffold(
         containerColor = ReportsBackground,
@@ -180,7 +199,7 @@ private fun ReportsHome(snapshot: AppSnapshot, close: () -> Unit) {
             }
             when (page) {
                 ReportsPage.OVERVIEW -> OverviewReport(snapshot)
-                ReportsPage.KHATA -> CustomerLedgerReport(snapshot)
+                ReportsPage.KHATA -> CustomerLedgerReport(snapshot, onSnapshotChanged)
                 ReportsPage.GIRVI -> GirviFilterReport(snapshot)
                 ReportsPage.COLLECTIONS -> CollectionReport(snapshot)
             }
@@ -194,9 +213,7 @@ private fun OverviewReport(snapshot: AppSnapshot) {
     val monthCount = months.toIntOrNull()?.coerceIn(0, 120) ?: 0
     val summary = remember(snapshot, monthCount) { ReportingEngine.portfolio(snapshot, monthCount) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            OutlinedTextField(months, { months = it.filter(Char::isDigit).take(3) }, label = { Text("Settlement months") }, modifier = Modifier.fillMaxWidth())
-        }
+        item { OutlinedTextField(months, { months = it.filter(Char::isDigit).take(3) }, label = { Text("Settlement months") }, modifier = Modifier.fillMaxWidth()) }
         item { SummaryRow("Customers", summary.totalCustomers.toString(), "Total Girvi", summary.totalGirvi.toString()) }
         item { SummaryRow("Active", summary.activeGirvi.toString(), "Released", summary.releasedGirvi.toString()) }
         item { SummaryRow("Original Principal", reportsMoney(summary.originalPrincipalPaise), "Received", reportsMoney(summary.effectiveReceivedPaise)) }
@@ -210,19 +227,61 @@ private fun OverviewReport(snapshot: AppSnapshot) {
 }
 
 @Composable
-private fun CustomerLedgerReport(snapshot: AppSnapshot) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+private fun CustomerLedgerReport(snapshot: AppSnapshot, onSnapshotChanged: (AppSnapshot) -> Unit) {
+    val context = LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
     var months by rememberSaveable { mutableStateOf("1") }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<CustomerRecord?>(null) }
+    var deleteCandidate by remember { mutableStateOf<CustomerRecord?>(null) }
+    var message by rememberSaveable { mutableStateOf("") }
     val monthCount = months.toIntOrNull()?.coerceIn(0, 120) ?: 0
     val customers = snapshot.customers.filter {
         query.isBlank() || it.name.contains(query, true) || it.mobile.contains(query) || it.address.contains(query, true)
     }
+
+    editing?.let { customer ->
+        CustomerEditDialog(
+            customer = customer,
+            onDismiss = { editing = null },
+            onSave = { name, mobile, address ->
+                runCatching { CustomerAccountOperations.updateCustomer(snapshot, customer.id, name, mobile, address) }
+                    .onSuccess {
+                        onSnapshotChanged(it)
+                        message = "Customer profile save ho gaya"
+                        editing = null
+                    }
+                    .onFailure { message = it.message ?: "Customer save nahi hua" }
+            },
+        )
+    }
+
+    deleteCandidate?.let { customer ->
+        AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = { Text("Unused customer delete karein?") },
+            text = { Text("${customer.name} ka koi girvi history nahi hai. Delete undo nahi hoga.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching { CustomerAccountOperations.deleteUnusedCustomer(snapshot, customer.id) }
+                        .onSuccess {
+                            onSnapshotChanged(it)
+                            selectedId = null
+                            message = "Unused customer delete ho gaya"
+                            deleteCandidate = null
+                        }
+                        .onFailure { message = it.message ?: "Customer delete nahi hua" }
+                }) { Text("Delete", color = ReportsRed) }
+            },
+            dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") } },
+        )
+    }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             OutlinedTextField(query, { query = it }, label = { Text("Customer search") }, leadingIcon = { Icon(Icons.Default.Search, null) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(months, { months = it.filter(Char::isDigit).take(3) }, label = { Text("Settlement months") }, modifier = Modifier.fillMaxWidth())
+            if (message.isNotBlank()) Text(message, color = ReportsGreen, fontSize = 12.sp)
         }
         if (selectedId == null) {
             items(customers, key = { it.id }) { customer ->
@@ -236,24 +295,69 @@ private fun CustomerLedgerReport(snapshot: AppSnapshot) {
                 }
             }
         } else {
-            val id = selectedId!!
-            val girvis = snapshot.girvis.filter { it.customerId == id }
-            val ledger = ReportingEngine.customerLedger(snapshot, id, monthCount)
-            item {
-                ReportsBanner("${ledger.customerName}: ${reportsMoney(ledger.totalOutstandingPaise)} outstanding")
-                SummaryRow("Total Girvi", ledger.totalGirvi.toString(), "Active", ledger.activeGirvi.toString())
-                SummaryRow("Received", reportsMoney(ledger.effectiveReceivedPaise), "Principal Due", reportsMoney(ledger.outstandingPrincipalPaise))
-                OutlinedButton(
-                    onClick = { SecureShare.shareText(context, "${ledger.customerName} Statement", ReceiptTextBuilder.customerStatement(ledger.customerName, girvis)) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Icon(Icons.Default.Share, null); Text(" Customer Statement Share") }
-                TextButton(onClick = { selectedId = null }, modifier = Modifier.fillMaxWidth()) { Text("Customer list par wapas") }
-            }
-            items(girvis.sortedByDescending { it.createdAt }, key = { it.id }) {
-                ReportsCard(it.girviNumber, "${it.status} • Principal ${reportsMoney(it.principalPaise)}")
+            val customer = snapshot.customers.firstOrNull { it.id == selectedId }
+            if (customer == null) {
+                item { TextButton(onClick = { selectedId = null }) { Text("Customer list par wapas") } }
+            } else {
+                val girvis = snapshot.girvis.filter { it.customerId == customer.id }
+                val ledger = ReportingEngine.customerLedger(snapshot, customer.id, monthCount)
+                item {
+                    ReportsBanner("${ledger.customerName}: ${reportsMoney(ledger.totalOutstandingPaise)} outstanding")
+                    SummaryRow("Total Girvi", ledger.totalGirvi.toString(), "Active", ledger.activeGirvi.toString())
+                    SummaryRow("Received", reportsMoney(ledger.effectiveReceivedPaise), "Principal Due", reportsMoney(ledger.outstandingPrincipalPaise))
+                    ReportsCard("Mobile", customer.mobile.ifBlank { "Not saved" })
+                    ReportsCard("Address", customer.address.ifBlank { "Not saved" })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { editing = customer }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Edit, null); Text(" Edit")
+                        }
+                        OutlinedButton(
+                            onClick = { deleteCandidate = customer },
+                            enabled = CustomerAccountOperations.canDelete(snapshot, customer.id),
+                            modifier = Modifier.weight(1f),
+                        ) { Icon(Icons.Default.Delete, null); Text(" Delete") }
+                    }
+                    if (!CustomerAccountOperations.canDelete(snapshot, customer.id)) {
+                        Text("Girvi history wale customer ko delete nahi kiya ja sakta.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { SecureShare.shareText(context, "${ledger.customerName} Statement", ReceiptTextBuilder.customerStatement(ledger.customerName, girvis)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Icon(Icons.Default.Share, null); Text(" Customer Statement Share") }
+                    TextButton(onClick = { selectedId = null }, modifier = Modifier.fillMaxWidth()) { Text("Customer list par wapas") }
+                }
+                items(girvis.sortedByDescending { it.createdAt }, key = { it.id }) {
+                    ReportsCard(it.girviNumber, "${it.status} • Principal ${reportsMoney(it.principalPaise)}")
+                }
             }
         }
     }
+}
+
+@Composable
+private fun CustomerEditDialog(customer: CustomerRecord, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+    var name by remember(customer.id) { mutableStateOf(customer.name) }
+    var mobile by remember(customer.id) { mutableStateOf(customer.mobile) }
+    var address by remember(customer.id) { mutableStateOf(customer.address) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Customer Profile Edit") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    mobile,
+                    { mobile = it.filter(Char::isDigit).take(15) },
+                    label = { Text("Mobile") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(address, { address = it }, label = { Text("Address / Village") }, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(name, mobile, address) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -279,25 +383,68 @@ private fun GirviFilterReport(snapshot: AppSnapshot) {
 
 @Composable
 private fun CollectionReport(snapshot: AppSnapshot) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var days by rememberSaveable { mutableStateOf(1) }
+    val context = LocalContext.current
+    var preset by rememberSaveable { mutableStateOf(CollectionPreset.TODAY) }
+    var customFrom by rememberSaveable { mutableStateOf(startOfToday()) }
+    var customTo by rememberSaveable { mutableStateOf(endOfToday()) }
+    var message by rememberSaveable { mutableStateOf("") }
     val now = System.currentTimeMillis()
-    val from = if (days == 0) 0L else Calendar.getInstance().apply {
-        timeInMillis = now
-        add(Calendar.DAY_OF_YEAR, -(days - 1))
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
-    val rows = remember(snapshot, days) { ReportingEngine.collections(snapshot, DateRange(from, now)) }
+    val range = remember(preset, customFrom, customTo, now) {
+        when (preset) {
+            CollectionPreset.TODAY -> DateRange(startOfToday(), now)
+            CollectionPreset.SEVEN_DAYS -> DateRange(startOfDaysAgo(6), now)
+            CollectionPreset.THIRTY_DAYS -> DateRange(startOfDaysAgo(29), now)
+            CollectionPreset.ALL -> DateRange(0L, now)
+            CollectionPreset.CUSTOM -> DateRange(customFrom, customTo)
+        }
+    }
+    val rows = remember(snapshot, range) {
+        runCatching { ReportingEngine.collections(snapshot, range) }
+            .onFailure { message = it.message ?: "Date range invalid hai" }
+            .getOrDefault(emptyList())
+    }
+    val formatter = remember { SimpleDateFormat("dd MMM yyyy", Locale("en", "IN")) }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row {
-                listOf(1 to "Today", 7 to "7 Days", 30 to "30 Days", 0 to "All").forEach { (value, label) ->
-                    TextButton(onClick = { days = value }, modifier = Modifier.weight(1f)) { Text(if (days == value) "✓ $label" else label, fontSize = 11.sp) }
+                listOf(
+                    CollectionPreset.TODAY to "Today",
+                    CollectionPreset.SEVEN_DAYS to "7 Days",
+                    CollectionPreset.THIRTY_DAYS to "30 Days",
+                    CollectionPreset.ALL to "All",
+                ).forEach { (value, label) ->
+                    TextButton(onClick = { preset = value }, modifier = Modifier.weight(1f)) {
+                        Text(if (preset == value) "✓ $label" else label, fontSize = 11.sp)
+                    }
                 }
             }
+            OutlinedButton(onClick = { preset = CollectionPreset.CUSTOM }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (preset == CollectionPreset.CUSTOM) "✓ Custom Date Range" else "Custom Date Range")
+            }
+            if (preset == CollectionPreset.CUSTOM) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            showDatePicker(context, customFrom) { selected ->
+                                customFrom = startOfDay(selected)
+                                if (customFrom > customTo) message = "From date, To date se baad nahi ho sakti"
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("From\n${formatter.format(Date(customFrom))}", fontSize = 11.sp) }
+                    OutlinedButton(
+                        onClick = {
+                            showDatePicker(context, customTo) { selected ->
+                                customTo = endOfDay(selected)
+                                if (customFrom > customTo) message = "From date, To date se baad nahi ho sakti"
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("To\n${formatter.format(Date(customTo))}", fontSize = 11.sp) }
+                }
+            }
+            if (message.isNotBlank()) Text(message, color = ReportsRed, fontSize = 12.sp)
             ReportsBanner("Collections: ${reportsMoney(rows.sumOf { it.amountPaise })} • ${rows.size} receipts")
             Button(
                 onClick = { SecureShare.shareCsv(context, "girvi-collections-${System.currentTimeMillis()}.csv", CsvExportBuilder.collections(rows)) },
@@ -325,6 +472,45 @@ private fun CollectionReport(snapshot: AppSnapshot) {
         }
     }
 }
+
+private fun showDatePicker(context: android.content.Context, currentMillis: Long, onSelected: (Long) -> Unit) {
+    val current = Calendar.getInstance().apply { timeInMillis = currentMillis }
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            onSelected(Calendar.getInstance().apply {
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+                set(Calendar.DAY_OF_MONTH, day)
+            }.timeInMillis)
+        },
+        current.get(Calendar.YEAR),
+        current.get(Calendar.MONTH),
+        current.get(Calendar.DAY_OF_MONTH),
+    ).show()
+}
+
+private fun startOfToday(): Long = startOfDay(System.currentTimeMillis())
+private fun endOfToday(): Long = endOfDay(System.currentTimeMillis())
+private fun startOfDaysAgo(days: Int): Long = Calendar.getInstance().apply {
+    add(Calendar.DAY_OF_YEAR, -days)
+}.timeInMillis.let(::startOfDay)
+
+private fun startOfDay(millis: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = millis
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+private fun endOfDay(millis: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = millis
+    set(Calendar.HOUR_OF_DAY, 23)
+    set(Calendar.MINUTE, 59)
+    set(Calendar.SECOND, 59)
+    set(Calendar.MILLISECOND, 999)
+}.timeInMillis
 
 @Composable
 private fun SummaryRow(leftLabel: String, leftValue: String, rightLabel: String, rightValue: String) {
