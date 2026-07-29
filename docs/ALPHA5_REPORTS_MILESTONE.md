@@ -1,6 +1,20 @@
 # Alpha 5 — Reports, Statements, Receipts, and Secure Export
 
-Status: IMPLEMENTED — ANDROID CI VALIDATION IN PROGRESS
+Status: VERIFIED TESTING BUILD — OWNER TEST PENDING
+
+## Build verification
+
+- Code commit: `3307c7986d3e7adf7ff186167bb112997fee9e6c`
+- Android workflow run: `30417441644`
+- Artifact ID: `8710715139`
+- APK size: `19,911,054 bytes`
+- APK SHA-256: `070ec4ab33fb823883568a0f72af948d27f840d4ac3ba524e6de78cfee2cd5b9`
+- Android unit tests passed.
+- Compose/Kotlin compilation passed after fixing the reports PIN and layout typing issues.
+- Signed testing APK build passed.
+- Artifact upload passed.
+- Security Guard passed.
+- Downloaded artifact contained one APK and its ZIP integrity check reported no errors.
 
 ## Owner-approved baseline
 
@@ -41,7 +55,7 @@ For this testing milestone, Android exposes a second launcher entry named `Girvi
 - Version code: 5
 - Version name: `0.5.0-testing`
 - Package: `com.girvikhata.app.testing`
-- Stable testing signature must remain unchanged.
+- Stable testing signature remains unchanged.
 
 ## Owner physical-test checklist
 
