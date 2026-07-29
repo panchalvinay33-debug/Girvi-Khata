@@ -14,7 +14,8 @@ import java.util.UUID
  * Encrypted snapshot store used during testing milestones.
  *
  * The binary envelope stays at format v1 while the JSON schema is versioned independently.
- * Schema v2 adds multiple items per girvi and remains backward-compatible with Alpha 2 data.
+ * Schema v3 adds immutable payment-ledger entries and release metadata, while retaining
+ * backward compatibility with Alpha 2/3 records.
  */
 class EncryptedRecordStore(
     context: Context,
@@ -94,6 +95,9 @@ class EncryptedRecordStore(
                     put("monthlyRateBasisPoints", girvi.monthlyRateBasisPoints)
                     put("createdAt", girvi.createdAt)
                     put("status", girvi.status)
+                    put("releasedAt", girvi.releasedAt ?: JSONObject.NULL)
+                    put("releaseNote", girvi.releaseNote)
+                    put("manualInterestAdjustmentPaise", girvi.manualInterestAdjustmentPaise)
                     put("items", JSONArray().apply {
                         girvi.effectiveItems.forEach { item ->
                             put(JSONObject().apply {
@@ -104,6 +108,23 @@ class EncryptedRecordStore(
                                 put("grossWeightGrams", item.grossWeightGrams)
                                 put("deductionWeightGrams", item.deductionWeightGrams)
                                 put("description", item.description)
+                            })
+                        }
+                    })
+                    put("payments", JSONArray().apply {
+                        girvi.payments.forEach { payment ->
+                            put(JSONObject().apply {
+                                put("id", payment.id)
+                                put("receiptNumber", payment.receiptNumber)
+                                put("amountPaise", payment.amountPaise)
+                                put("principalPaise", payment.principalPaise)
+                                put("interestPaise", payment.interestPaise)
+                                put("chargesPaise", payment.chargesPaise)
+                                put("mode", payment.mode)
+                                put("note", payment.note)
+                                put("createdAt", payment.createdAt)
+                                put("isReversal", payment.isReversal)
+                                put("reversedPaymentId", payment.reversedPaymentId ?: JSONObject.NULL)
                             })
                         }
                     })
@@ -168,6 +189,24 @@ class EncryptedRecordStore(
                             ),
                         )
                     }
+                    val paymentArray = optJSONArray("payments") ?: JSONArray()
+                    val decodedPayments = List(paymentArray.length()) { paymentIndex ->
+                        paymentArray.getJSONObject(paymentIndex).run {
+                            PaymentRecord(
+                                id = optString("id", UUID.randomUUID().toString()),
+                                receiptNumber = optString("receiptNumber"),
+                                amountPaise = optLong("amountPaise"),
+                                principalPaise = optLong("principalPaise"),
+                                interestPaise = optLong("interestPaise"),
+                                chargesPaise = optLong("chargesPaise"),
+                                mode = optString("mode", "CASH"),
+                                note = optString("note"),
+                                createdAt = optLong("createdAt"),
+                                isReversal = optBoolean("isReversal", false),
+                                reversedPaymentId = optNullableString("reversedPaymentId"),
+                            )
+                        }
+                    }
                     GirviRecord(
                         id = getString("id"),
                         girviNumber = getString("girviNumber"),
@@ -181,23 +220,33 @@ class EncryptedRecordStore(
                         createdAt = getLong("createdAt"),
                         status = optString("status", "ACTIVE"),
                         items = decodedItems,
+                        payments = decodedPayments,
+                        manualInterestAdjustmentPaise = optLong("manualInterestAdjustmentPaise", 0L),
+                        releasedAt = optNullableLong("releasedAt"),
+                        releaseNote = optString("releaseNote"),
                     )
                 }
             },
         )
     }
 
+    private fun JSONObject.optNullableString(name: String): String? =
+        if (!has(name) || isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
+
+    private fun JSONObject.optNullableLong(name: String): Long? =
+        if (!has(name) || isNull(name)) null else optLong(name)
+
     companion object {
         private const val FILE_NAME = "business_records_v1.bin"
         private const val MAGIC = 0x474B5631
         private const val FORMAT_VERSION = 1
-        private const val CURRENT_SCHEMA = 2
+        private const val CURRENT_SCHEMA = 3
         private val ASSOCIATED_DATA = "girvi-khata-local-store-v1".toByteArray(Charsets.UTF_8)
     }
 }
 
 data class AppSnapshot(
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 3,
     val customers: List<CustomerRecord> = emptyList(),
     val categories: List<CategoryRecord> = emptyList(),
     val girvis: List<GirviRecord> = emptyList(),
@@ -238,6 +287,27 @@ data class GirviItemRecord(
     val description: String = "",
 )
 
+data class PaymentRecord(
+    val id: String = UUID.randomUUID().toString(),
+    val receiptNumber: String,
+    val amountPaise: Long,
+    val principalPaise: Long,
+    val interestPaise: Long,
+    val chargesPaise: Long = 0,
+    val mode: String = "CASH",
+    val note: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val isReversal: Boolean = false,
+    val reversedPaymentId: String? = null,
+) {
+    init {
+        require(amountPaise > 0)
+        require(principalPaise >= 0 && interestPaise >= 0 && chargesPaise >= 0)
+        require(principalPaise + interestPaise + chargesPaise == amountPaise)
+        if (isReversal) require(!reversedPaymentId.isNullOrBlank())
+    }
+}
+
 data class GirviRecord(
     val id: String = UUID.randomUUID().toString(),
     val girviNumber: String,
@@ -251,6 +321,10 @@ data class GirviRecord(
     val createdAt: Long = System.currentTimeMillis(),
     val status: String = "ACTIVE",
     val items: List<GirviItemRecord> = emptyList(),
+    val payments: List<PaymentRecord> = emptyList(),
+    val manualInterestAdjustmentPaise: Long = 0,
+    val releasedAt: Long? = null,
+    val releaseNote: String = "",
 ) {
     val effectiveItems: List<GirviItemRecord>
         get() = items.ifEmpty {
