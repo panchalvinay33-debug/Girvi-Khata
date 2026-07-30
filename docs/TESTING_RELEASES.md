@@ -9,6 +9,58 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.17.0-alpha.17
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+- Commit: `9845284c3eb39e251bdb66e4ab367046256c105f`
+- Android workflow: `30528710554`
+- Security Guard: `30528710551`
+- Artifact ID: `8753862752`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `17` / `0.17.0-testing`
+- APK size: `20,271,762 bytes`
+- APK SHA-256: `f5d4bb65f439034f5ee0096c7ae62d80bb9033163038f28dcc3acf423f4c2aa4`
+
+Verified scope:
+
+- PIN-protected Master-Assisted Girvi & Payment workflow inside internal Tools.
+- Active Item, Unit, Interest Plan and Locker masters are selectable during girvi creation.
+- Existing-customer search/reuse and manual item/rate fallback remain available.
+- Selected interest-plan basis points become the account monthly rate.
+- Selected payment mode is written to the immutable payment ledger.
+- Principal-first and interest-first payment allocation are available.
+- Portable `.gkb` backup now contains both business snapshot and encrypted master catalog.
+- New bundle restore replaces business and masters after preview/read-back verification.
+- Legacy snapshot-only backups remain readable and preserve the current master catalog.
+- Pre-restore safety backup now contains business records and masters together.
+- Portable master codec rejects duplicate IDs, invalid kinds, invalid rates and oversized catalogs.
+- Legacy top-level girvi items receive deterministic portable IDs derived from stable girvi IDs, making repeat backup bytes and SHA deterministic.
+- Android CI runs on PR and development-branch pushes; full unit tests, Compose build, stable signing and artifact upload passed.
+- Security Guard, artifact ZIP integrity and APK integrity passed.
+
+Owner checklist:
+
+1. Install over Alpha 16 without uninstalling.
+2. Confirm existing PIN, fingerprint, customers, girvi, payments and masters.
+3. Create/enable Item, Unit, Interest Plan, Payment Mode and Locker entries in Business Masters.
+4. Open Master-Assisted Girvi & Payment; wrong PIN must fail and correct PIN must unlock.
+5. Create a disposable girvi using saved item, unit, plan and locker.
+6. Reopen details and verify item description metadata and exact interest rate.
+7. Receive a payment using a saved custom payment mode; verify receipt and allocation.
+8. Create an external `.gkb` backup and confirm success message includes master count.
+9. Preview the new backup in Restore; verify business and master counts.
+10. Verify a legacy Alpha 8–16 backup preview says current masters will be preserved; do not destructively restore real data without a safe copy.
+11. Restart the app and regression-test Reports, Settlement, Safety Status, Owner Settings and corruption recovery.
+
+Known limitations:
+
+- Master-assisted girvi entry currently creates one item; the original main workflow still supports multiple items.
+- Unit, locker and plan labels are stored in the schema-compatible item description until the relational database migration adds dedicated columns.
+- Custom payment split remains in the original payment workflow; the master-assisted screen offers interest-first or principal-first.
+- Physical-device update, scrolling, Files/Drive provider and restore behavior remain owner-test pending.
+- Persistence remains the interim encrypted snapshot architecture rather than the final transactional relational database.
+
 ## v0.14.0-alpha.14
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
