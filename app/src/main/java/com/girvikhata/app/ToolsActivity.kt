@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -55,6 +56,7 @@ class ToolsActivity : FragmentActivity() {
                     warning = warning,
                     openSafety = { startActivity(Intent(this, DataSafetyActivity::class.java)) },
                     openOwnerSettings = { startActivity(Intent(this, OwnerSettingsActivity::class.java)) },
+                    openMasters = { startActivity(Intent(this, MasterCatalogActivity::class.java)) },
                     openSettlement = { startActivity(Intent(this, SettlementCenterActivity::class.java)) },
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
@@ -73,6 +75,7 @@ private fun ToolsScreen(
     warning: String?,
     openSafety: () -> Unit,
     openOwnerSettings: () -> Unit,
+    openMasters: () -> Unit,
     openSettlement: () -> Unit,
     openReports: () -> Unit,
     openBackup: () -> Unit,
@@ -90,20 +93,23 @@ private fun ToolsScreen(
         Icon(Icons.Default.Lock, null, tint = navy)
         Spacer(Modifier.height(10.dp))
         Text("Girvi Khata Tools", fontSize = 29.sp, fontWeight = FontWeight.Bold, color = navy)
-        Text("Safety, settlement, reports, backup aur owner settings", color = Color.Gray)
-        Spacer(Modifier.height(18.dp))
+        Text("Safety, masters, settlement, reports aur backup", color = Color.Gray)
+        Spacer(Modifier.height(14.dp))
         Card(
             Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
         ) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 warning?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
                 Button(onClick = openSafety, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A))) {
                     Icon(Icons.Default.Security, null); Text("  Data Safety Status")
                 }
                 Button(onClick = openOwnerSettings, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F51B5))) {
                     Icon(Icons.Default.Settings, null); Text("  Owner Settings")
+                }
+                Button(onClick = openMasters, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00695C))) {
+                    Icon(Icons.Default.Tune, null); Text("  Business Masters")
                 }
                 Button(onClick = openSettlement, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7A4D00))) {
                     Icon(Icons.Default.ReceiptLong, null); Text("  Settlement & Release Center")
@@ -120,7 +126,7 @@ private fun ToolsScreen(
                 OutlinedButton(onClick = openPinRecovery, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.LockReset, null); Text("  Purana PIN Kaam Nahi Kar Raha")
                 }
-                Text("Critical payment, reversal, adjustment ya release ke baad external verified backup banayein.", color = Color.Gray, fontSize = 12.sp)
+                Text("Business Masters separate Android-Keystore encrypted catalog mein save hote hain.", color = Color.Gray, fontSize = 12.sp)
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
