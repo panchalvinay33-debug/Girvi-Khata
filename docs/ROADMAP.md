@@ -1,6 +1,6 @@
 # Girvi Khata Master Roadmap
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30 after Alpha 14.
 
 ## Product promise
 
@@ -10,124 +10,116 @@ A private, offline-first, single-owner digital girvi ledger. Business records re
 
 `development branch → automated checks → separate versioned APK → owner physical test → fixes/retest → explicit owner approval → merge into main`
 
-No untested milestone enters `main`. Every milestone updates current state, progress, decisions, testing releases, roadmap, and backup documentation.
-
 ## Current status
 
-- Latest owner-approved functional baseline: `v0.4.0-alpha.4`
-- Latest CI-verified testing build: `v0.8.0-alpha.8`
-- Alpha 8 owner physical test: pending
+- Latest owner-approved functional baseline: `v0.9.0-alpha.9`
+- Latest CI-verified testing build: `v0.14.0-alpha.14`
+- Alpha 10–14 owner physical tests: pending
 - Development branch: `agent/initial-foundation`
 - `main`: untouched
-- Repository must become Private before OAuth credentials, production signing, or real data are introduced.
+- Repository must become Private before OAuth credentials, production signing or real data are introduced.
+- Whole-product estimate toward a safe first stable release: about 65%; see `PROJECT_COMPLETION_AUDIT.md`.
 
 ## Phase 0 — Governance and delivery
 
-- [x] Repository, privacy boundary, security policy, current-state document, decision/progress/testing ledgers
-- [x] Android CI and Security Guard
-- [x] Stable in-place testing package and signing identity
+- [x] Privacy boundary, security policy, decisions/progress/testing/current-state ledgers
+- [x] Android CI, Security Guard and stable in-place testing signature
 - [x] Mandatory owner-test-before-merge workflow
-- [ ] Owner-test Alpha 8 and fix/retest any regressions
+- [ ] Owner-test Alpha 10–14 and fix/retest regressions
 - [ ] Advance an explicitly approved baseline into `main`
 - [ ] Change repository visibility to Private
 - [ ] Enable branch protection and required checks
 
 ## Phase 1 — Security entry and recovery
 
-- [x] PIN enrollment, salted PBKDF2 verifier, weak-PIN rejection, progressive lockout
-- [x] Android Keystore AES-GCM local-data protection
-- [x] Strong biometric unlock
-- [x] Thirty-second background auto-lock
-- [x] Data-preserving PIN recovery through biometric/device credential
-- [x] PIN verifier structure validation and synchronous security-state writes
-- [ ] Physical-device verification of Alpha 8 PIN recovery
-- [ ] Privacy screen for recent-app previews
-- [ ] Configurable lock timeout and biometric toggle
-- [ ] Explicit corrupt-security-state diagnostics and recovery telemetry that contains no secrets
+- [x] PIN enrollment, PBKDF2 verifier, weak-PIN rejection and progressive lockout
+- [x] Strong biometric unlock and authenticated data-preserving PIN recovery
+- [x] Configurable biometric toggle
+- [x] Configurable auto-lock: immediate, 30 sec, 1 min, 5 min
+- [x] App-wide secure-window policy and single launcher
+- [x] PIN verifier structure diagnostic
+- [ ] Owner-device timing/biometric/privacy verification
+- [ ] Root/device-integrity warning and final production security checklist
 
 ## Phase 2 — Shop customization
 
-- [x] Configurable domain models
-- [x] Persistent category create/activate/deactivate with active-girvi protection
-- [ ] Category rename and reorder
-- [ ] Item, unit, interest-plan, payment-mode, locker, status, and custom-field management screens
+- [x] Category create/activate/deactivate with active-girvi protection
+- [x] Category rename with linked girvi/item propagation
+- [x] Category reorder
+- [ ] Item and unit management
+- [ ] Saved interest-plan management and girvi-wizard selection
+- [ ] Payment-mode, locker, status and custom-field management
 
 ## Phase 3 — Customers and girvi
 
 - [x] Encrypted customer/category/girvi persistence
-- [x] Existing-customer picker and search
-- [x] Multiple items, quantity, gross/deduction/net weight, and description
-- [x] Deterministic date-wise girvi numbers
-- [x] Girvi details and status
-- [x] Customer-account domain safety: duplicate mobile, rename propagation, deletion protection
-- [x] Customer-wise khata visible in Reports
-- [ ] Customer profile/edit/delete-safe visible workflow in main app
-- [ ] Photo/document vault
-- [ ] Final transactional encrypted database and migrations
+- [x] Existing-customer picker, search and profile editing
+- [x] Duplicate-mobile protection and history-safe customer deletion
+- [x] Multiple items, quantity, weights and description
+- [x] Deterministic date-wise girvi numbers and status/details
+- [x] Customer-wise khata
+- [ ] Photo/document media vault
+- [ ] Transaction-safe encrypted relational database and migration
 
 ## Phase 4 — Calculation engine
 
 - [x] Monthly/daily/yearly/fixed/compound/manual/no-interest foundations
-- [x] Grace, partial-month, rounding, compounding, period breakup, adjustments
-- [x] Month-wise settlement UI and tests
-- [ ] Selectable saved interest plans in girvi wizard
-- [ ] Historical-date and long-period edge-case suite
+- [x] Grace, partial month, rounding, compounding, period breakup and adjustments
+- [x] Settlement UI and tests
+- [ ] Saved plan selection in girvi wizard
+- [ ] Historical-date and long-period edge-case expansion
 
 ## Phase 5 — Payments and release
 
-- [x] Interest-first, principal-first, and custom allocation
-- [x] Encrypted payment posting, modes, notes, receipt numbers
+- [x] Interest-first, principal-first and custom allocation
+- [x] Payment posting, modes, notes and receipt numbers
 - [x] Immutable history and linked reversals
-- [x] Settlement totals, release block, owner override, and release metadata
-- [x] Alpha 4 owner approval
-- [ ] Manual interest-adjustment UI with mandatory audit reason
-- [ ] Final settlement/release receipt and checklist
-- [ ] Critical verified-backup trigger after payment/reversal/release
+- [x] Settlement totals, release block, override and release metadata
+- [ ] Manual interest-adjustment UI with mandatory reason
+- [ ] Final release checklist and production receipt
+- [ ] Exact database-transaction audit events
 
-## Phase 6 — Search, reports, receipts, and exports
+## Phase 6 — Search, reports and exports
 
 - [x] Search by customer/mobile/address/girvi/item/category
 - [x] Active/released/all filters
-- [x] Customer-ledger and portfolio summaries
-- [x] Effective collections excluding reversed payments
-- [x] Today/7-day/30-day/all-time ranges and exact date-range engine
-- [x] Visible reports and customer khata
-- [x] Plain-text receipt and statement sharing
-- [x] App-private CSV generation and FileProvider sharing
-- [ ] Visible custom date picker
-- [ ] Production PDF and thermal receipt templates/printing
+- [x] Customer ledger and portfolio summaries
+- [x] Effective collections excluding reversals
+- [x] Today/7-day/30-day/all-time/custom date ranges
+- [x] CSV, text receipt and customer-statement sharing
+- [ ] Production PDF receipt and statement templates
+- [ ] Thermal printer support
 
-## Phase 7 — Portable encrypted backup and recovery
+## Phase 7 — Backup, recovery and safety
 
-- [x] Portable versioned snapshot serializer
-- [x] AES-256-GCM package with PBKDF2-HMAC-SHA256 recovery-passphrase key derivation
-- [x] Random salt/nonce, tamper detection, package size and structure validation
-- [x] PIN-protected backup creation and `.gkb` sharing
-- [x] Strict decode with customer/girvi/payment/reversal/release validation
-- [x] Restore preview, explicit confirmation, pre-restore safety backup, encrypted local replacement, read-back count verification
-- [ ] Alpha 8 owner physical test of backup and dummy-data restore
-- [ ] User-visible safety-backup management and rollback
-- [ ] Google Drive authorization with minimum app-data scope
-- [ ] Upload/read-back/hash/manifest verification
-- [ ] Retention and WorkManager scheduling
-- [ ] Cloud backup discovery and compatible-version migration
+- [x] Portable versioned snapshot serializer and AES-256-GCM package
+- [x] PBKDF2 recovery phrase, random salt/nonce and tamper validation
+- [x] Strict restore preview/confirmation and read-back verification
+- [x] Rotating local safety copies, quarantine and recovery-required screen
+- [x] Data Safety dashboard and encrypted hash-chained journal
+- [x] Direct Files/Drive document write and same-URI read-back verification
+- [ ] Owner physical test of backup/restore/provider compatibility
+- [ ] User-visible local safety-copy rollback management
+- [ ] Google Drive API authorization, upload/read-back verification and retention
+- [ ] WorkManager scheduling, retries and cloud restore discovery
 
-## Phase 8 — Navigation and UX consolidation
+## Phase 8 — Navigation and UX
 
-- [x] Modular main UI and separate Tools hub
-- [ ] Move Reports, Backup, Restore, and PIN Recovery into one main-app navigation
-- [ ] Remove second launcher entry after owner verification
-- [ ] Improve empty states, validation messages, keyboard behavior, and accessibility
+- [x] One launcher and internal Tools hub
+- [x] Owner Settings, Safety, Reports, Backup, Restore and PIN Recovery reachable internally
+- [ ] Replace floating Tools activity hop with native main-app navigation
+- [ ] Accessibility, font scaling, keyboard behavior and broader screen-size testing
+- [ ] Final onboarding/help and wording review
 
 ## Phase 9 — Production hardening
 
-- [x] Secret/file guard, backup exclusion, unit tests, stable signed testing builds
-- [ ] Replace encrypted snapshot store with transaction-safe encrypted relational storage
-- [ ] Explicit corrupt-store recovery; never silently replace unreadable records with defaults
-- [ ] Low-storage, large-data, interrupted-write, clock-change, uninstall/restore, and offline testing
-- [ ] Root/device-integrity warning and production security checklist
-- [ ] Private production signing and pilot rollout
+- [x] Secret/file guard, Android backup exclusion, stable testing builds and unit suite
+- [x] Explicit corrupt-store recovery; no silent empty fallback
+- [ ] Encrypted relational database with transaction/migration tests
+- [ ] Low-storage, large-data, interrupted-write, clock-change, offline and device-loss tests
+- [ ] Private production signing and release verification
+- [ ] Pilot rollout, feedback, crash diagnosis and rollback plan
 
 ## Out of scope for first stable release
 
-Multi-user staff accounts, live multi-device sync, web dashboard, central customer database, ads, behavioral analytics, iOS, and automated online lending.
+Multi-user staff accounts, live multi-device sync, web dashboard, central customer database, ads, analytics, iOS and automated online lending.
