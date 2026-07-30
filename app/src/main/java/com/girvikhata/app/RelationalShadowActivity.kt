@@ -35,8 +35,10 @@ import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.EncryptedRelationalShadowStore
+import com.girvikhata.app.data.MigrationDiagnosticReport
 import com.girvikhata.app.data.RelationalCutoverPolicy
 import com.girvikhata.app.data.RelationalDualReadReport
+import com.girvikhata.app.data.RelationalMigrationDiagnostics
 import com.girvikhata.app.data.RelationalShadowStatus
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
@@ -47,6 +49,7 @@ data class MigrationDashboardState(
     val status: RelationalShadowStatus,
     val dualRead: RelationalDualReadReport,
     val blockers: List<String>,
+    val diagnostic: MigrationDiagnosticReport? = null,
 )
 
 class RelationalShadowActivity : FragmentActivity() {
@@ -54,13 +57,17 @@ class RelationalShadowActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val records = EncryptedRecordStore(applicationContext)
         val security = SecurityPreferences(applicationContext)
+        val diagnostics = RelationalMigrationDiagnostics(applicationContext)
         fun dashboard(): MigrationDashboardState {
             val snapshot = records.load()
             return EncryptedRelationalShadowStore(applicationContext).use { shadow ->
                 val status = shadow.statusAgainst(snapshot)
                 val dual = shadow.dualReadComparison(snapshot)
-                val blockers = RelationalCutoverPolicy.blockers(shadow.cutoverEvidence(ownerApproved = false))
-                MigrationDashboardState(status, dual, blockers)
+                val blockers = RelationalCutoverPolicy.blockers(shadow.cutoverEvidence(ownerApproved = false)).toMutableList()
+                val diagnostic = diagnostics.latest()
+                if (diagnostic?.rollbackVerified != true) blockers += "Device rollback simulation pending"
+                if (diagnostic?.benchmarkVerified != true) blockers += "Device benchmark pending"
+                MigrationDashboardState(status, dual, blockers.distinct(), diagnostic)
             }
         }
         setContent {
@@ -78,6 +85,10 @@ class RelationalShadowActivity : FragmentActivity() {
                         EncryptedRelationalShadowStore(applicationContext).use { it.replaceAll(snapshot) }
                         dashboard()
                     },
+                    runDiagnostics = {
+                        diagnostics.run(records.load())
+                        dashboard()
+                    },
                     close = ::finish,
                 )
             }
@@ -91,6 +102,7 @@ private fun RelationalShadowRoot(
     loadDashboard: () -> MigrationDashboardState,
     incrementalSync: () -> MigrationDashboardState,
     rebuild: () -> MigrationDashboardState,
+    runDiagnostics: () -> MigrationDashboardState,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
@@ -141,6 +153,20 @@ private fun RelationalShadowRoot(
             }
         }
 
+        dashboard.diagnostic?.let { d ->
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (d.rollbackVerified && d.benchmarkVerified) Color(0xFFE8F5E9) else Color(0xFFFFEBEE))) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Device Diagnostic Proof", fontWeight = FontWeight.Bold)
+                    Text("Rollback simulation: ${if (d.rollbackVerified) "VERIFIED" else "PENDING/FAILED"}")
+                    Text("Benchmark: ${if (d.benchmarkVerified) "VERIFIED" else "PENDING/FAILED"}")
+                    Text("Storage headroom: ${if (d.lowSpaceSafe) "SAFE" else "BLOCKED"} • ${d.freeBytes / (1024 * 1024)} MB free")
+                    Text("Full rebuild: ${d.rebuildMillis?.let { "$it ms" } ?: "—"} • No-change verify: ${d.noChangeMillis?.let { "$it ms" } ?: "—"}")
+                    Text("Completed: ${DateFormat.getDateTimeInstance().format(Date(d.completedAt))}", fontSize = 12.sp)
+                    d.reason?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        }
+
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Cutover blockers (${dashboard.blockers.size})", fontWeight = FontWeight.Bold)
@@ -149,7 +175,10 @@ private fun RelationalShadowRoot(
             }
         }
 
-        message?.let { Text(it, color = if (it.startsWith("Verified") || it.startsWith("Synced") || it.startsWith("Status")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) }
+        message?.let { Text(it, color = if (it.startsWith("Verified") || it.startsWith("Synced") || it.startsWith("Status") || it.startsWith("Diagnostic")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) }
+        Button(onClick = {
+            runCatching(runDiagnostics).onSuccess { dashboard = it; message = "Diagnostic rollback and benchmark completed" }.onFailure { message = it.message ?: "Diagnostic failed" }
+        }, modifier = Modifier.fillMaxWidth(), colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF8B1E1E))) { Text("Run Device Rollback & Benchmark Proof") }
         Button(onClick = {
             runCatching(incrementalSync).onSuccess { dashboard = it; message = "Synced incremental delta and verified dual read" }.onFailure { message = it.message ?: "Incremental sync failed" }
         }, modifier = Modifier.fillMaxWidth()) { Text("Incremental Sync & Dual-Read Verify") }
