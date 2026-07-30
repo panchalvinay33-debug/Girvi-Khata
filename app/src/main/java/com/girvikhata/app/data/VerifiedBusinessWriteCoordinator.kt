@@ -126,6 +126,28 @@ sealed interface VerifiedBusinessMutation {
         }
     }
 
+    data class CreateGirviWithCustomer(
+        val customer: CustomerRecord,
+        val girvi: GirviRecord,
+    ) : VerifiedBusinessMutation {
+        override val auditLabel: String = "CUSTOMER_GIRVI_CREATE"
+
+        override fun apply(snapshot: AppSnapshot): AppSnapshot {
+            require(girvi.customerId == customer.id) { "Girvi customer identity mismatch" }
+            val existingCustomer = snapshot.customers.firstOrNull { it.id == customer.id }
+            require(existingCustomer == null || existingCustomer == customer) {
+                "Existing customer changed; refresh and retry"
+            }
+            require(snapshot.girvis.none { it.id == girvi.id }) { "Duplicate girvi ID" }
+            require(snapshot.girvis.none { it.girviNumber == girvi.girviNumber }) { "Duplicate girvi number" }
+            val customers = if (existingCustomer == null) snapshot.customers + customer else snapshot.customers
+            return snapshot.copy(
+                customers = customers.sortedBy { it.id },
+                girvis = (snapshot.girvis + girvi).sortedBy { it.id },
+            )
+        }
+    }
+
     data class AppendPayment(val girviId: String, val payment: PaymentRecord) : VerifiedBusinessMutation {
         override val auditLabel: String = "PAYMENT_APPEND"
         override fun apply(snapshot: AppSnapshot): AppSnapshot {
