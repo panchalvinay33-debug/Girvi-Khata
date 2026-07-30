@@ -19,7 +19,7 @@ class RelationalMasterBackfillTest {
         ))
         val customer = CustomerRecord(id = "c", name = "Customer")
         val item = GirviItemRecord(id = "i", categoryName = "gold", itemName = "RING", description = "Unit: gram • Locker: locker a")
-        val payment = PaymentRecord(id = "p", receiptNumber = "R1", amountPaise = 100, principalPaise = 100, mode = "upi")
+        val payment = PaymentRecord(id = "p", receiptNumber = "R1", amountPaise = 100, principalPaise = 100, interestPaise = 0, mode = "upi")
         val girvi = GirviRecord(id = "g", girviNumber = "G1", customerId = "c", customerName = "Customer", categoryName = "Gold", itemName = "Ring", weightGrams = "1", principalPaise = 1000, monthlyRateBasisPoints = 200, items = listOf(item), payments = listOf(payment))
 
         val plan = RelationalMasterBackfill.plan(AppSnapshot(customers = listOf(customer), girvis = listOf(girvi)), catalog)
@@ -45,7 +45,7 @@ class RelationalMasterBackfillTest {
             MasterEntry(id = "b", kind = MasterKind.PAYMENT_MODE, name = "upi"),
         ))
         val customer = CustomerRecord(id = "c", name = "Customer")
-        val payment = PaymentRecord(id = "p", receiptNumber = "R1", amountPaise = 100, principalPaise = 100, mode = "UPI")
+        val payment = PaymentRecord(id = "p", receiptNumber = "R1", amountPaise = 100, principalPaise = 100, interestPaise = 0, mode = "UPI")
         val girvi = GirviRecord(id = "g", girviNumber = "G1", customerId = "c", customerName = "Customer", categoryName = "Gold", itemName = "Ring", weightGrams = "1", principalPaise = 1000, monthlyRateBasisPoints = 200, payments = listOf(payment))
         assertNull(RelationalMasterBackfill.plan(AppSnapshot(customers = listOf(customer), girvis = listOf(girvi)), catalog).payments.single().paymentModeId)
     }
