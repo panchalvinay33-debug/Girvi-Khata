@@ -9,6 +9,61 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.18.0-alpha.18
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+- Commit: `93772dab32df673abefd4edbee1eb4a6cf8c6823`
+- Android workflow: `30531484305`
+- Security Guard: `30531484326`
+- Artifact ID: `8754962903`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `18` / `0.18.0-testing`
+- APK size: `20,337,330 bytes`
+- APK SHA-256: `abf3800536166380e1532cfc973c30170f467f16ea880beaf5058ed042699416`
+
+Verified scope:
+
+- New PIN-protected Advanced Multi-Item & Custom Split activity inside internal Tools.
+- One girvi can contain 1–50 validated items.
+- Each item supports category, saved/manual item name, saved unit metadata, quantity, gross weight, deduction, locker metadata and note.
+- Duplicate category+item pairs are rejected case-insensitively inside the same transaction.
+- Negative/oversized weights and deduction greater than gross weight are rejected.
+- Added-item cart supports review and removal before save.
+- Existing encrypted business snapshot remains the save authority and all items remain portable in `.gkb` backup/restore.
+- Custom payment allocation supports exact principal, interest and charges components.
+- Custom components must exactly equal the entered payment and cannot exceed their current due balances.
+- Existing SettlementEngine remains authoritative for posting and overpayment rejection.
+- Exact tamper-evident journal labels are added after successful multi-item creation and custom-split payment.
+- Classic master-assisted workflow remains available as a fallback.
+- Transaction-core tests, all previous accounting/backup/restore/security tests, Compose compilation, stable signing, Security Guard and APK upload passed.
+- Artifact ZIP integrity and APK archive integrity passed.
+
+Owner checklist:
+
+1. Install over Alpha 17 without uninstalling.
+2. Confirm existing PIN, fingerprint, customers, girvi, payments and Business Masters.
+3. Open Tools → Advanced Multi-Item & Custom Split; wrong PIN must fail and correct PIN must unlock.
+4. Add two different items to one disposable girvi and verify both appear in details/reports after save.
+5. Try the same category+item with different letter case; duplicate must fail.
+6. Try deduction greater than gross weight; item add must fail.
+7. Add an item, remove it, and confirm only remaining items are saved.
+8. Choose an active girvi and verify principal/interest/charges due preview.
+9. Post a custom split whose components exactly match the payment amount and dues.
+10. Try a mismatched split and a component greater than due; both must fail without saving.
+11. Check Data Safety Status for exact multi-item/custom-split audit events and backup-due increment.
+12. Create a verified external `.gkb` backup and preview it in Restore; multi-item records must remain intact.
+13. Restart and regression-test classic entry, settlement, reports, backup, restore and auto-lock.
+
+Known limitations:
+
+- Unit, locker and interest-plan labels remain schema-compatible item-description metadata until relational database columns are added.
+- Existing-customer search/reuse is richer in the classic master-assisted workflow; Alpha 18 advanced screen currently creates a new customer from entered details.
+- Item removal is immediate inside the unsaved draft cart and does not yet use a confirmation dialog.
+- Custom split uses current settlement-month due preview; owner must choose the correct month count.
+- Physical-device scrolling, keyboard behavior and OEM lifecycle remain owner-test pending.
+- Persistence remains the interim encrypted snapshot architecture rather than the final transactional relational database.
+
 ## v0.17.0-alpha.17
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
