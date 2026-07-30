@@ -49,28 +49,26 @@ class BusinessCommitObserver(context: Context) {
                 explicitReason = "BUSINESS_STORE_COMMITTED",
             )
         }
-        runCatching { EncryptedRelationalShadowStore(appContext).use { it.replaceAll(snapshot) } }
+        runCatching { EncryptedRelationalShadowStore(appContext).use { it.syncIncremental(snapshot) } }
             .onSuccess { status ->
                 runCatching {
                     DataSafetyJournal(appContext).recordNamedEvent(
-                        type = "RELATIONAL_SHADOW_VERIFIED",
-                        title = "Relational shadow verified",
-                        detail = "${status.actualCounts?.customers ?: 0} customers • ${status.actualCounts?.girvis ?: 0} girvi • fingerprint ${status.actualFingerprint?.take(16)}…",
+                        type = "RELATIONAL_DELTA_VERIFIED",
+                        title = "Relational delta verified",
+                        detail = "${status.syncMode ?: "SYNC"} • ${status.changedRows ?: 0} changed rows • ${status.consecutiveHealthySyncs} healthy syncs • fingerprint ${status.actualFingerprint?.take(16)}…",
                     )
                 }
             }
             .onFailure { error ->
                 runCatching {
                     DataSafetyJournal(appContext).recordNamedEvent(
-                        type = "RELATIONAL_SHADOW_FAILED",
-                        title = "Relational shadow verification failed",
+                        type = "RELATIONAL_DELTA_FAILED",
+                        title = "Relational delta rolled back",
                         detail = (error.message ?: "Unknown relational shadow error").take(450),
                     )
                 }
             }
     }
 
-    private companion object {
-        const val BUSINESS_FILE = "business_records_v1.bin"
-    }
+    private companion object { const val BUSINESS_FILE = "business_records_v1.bin" }
 }
