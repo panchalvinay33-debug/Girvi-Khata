@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Base64
 import java.time.Instant
 
-/** Stores only a salted PIN verifier and lockout metadata. The raw PIN is never persisted. */
+/** Stores only a salted PIN verifier, lockout metadata and owner-controlled session preferences. */
 class SecurityPreferences(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
     private val hasher = PinHasher()
@@ -15,6 +15,21 @@ class SecurityPreferences(context: Context) {
     fun verifierStatus(): PinVerifierStatus {
         if (!hasPin()) return PinVerifierStatus.NOT_CONFIGURED
         return if (readStoredPin() == null) PinVerifierStatus.CORRUPT else PinVerifierStatus.READY
+    }
+
+    fun sessionSettings(): SessionSecuritySettings = SessionSecuritySettings(
+        autoLockTimeoutMillis = preferences.getLong(KEY_AUTO_LOCK_TIMEOUT, SessionAutoLockPolicy.DEFAULT_TIMEOUT_MILLIS)
+            .takeIf { it in ALLOWED_LOCK_TIMEOUTS }
+            ?: SessionAutoLockPolicy.DEFAULT_TIMEOUT_MILLIS,
+        biometricUnlockEnabled = preferences.getBoolean(KEY_BIOMETRIC_ENABLED, true),
+    )
+
+    fun saveSessionSettings(settings: SessionSecuritySettings) {
+        require(settings.autoLockTimeoutMillis in ALLOWED_LOCK_TIMEOUTS) { "Unsupported auto-lock timeout" }
+        preferences.edit()
+            .putLong(KEY_AUTO_LOCK_TIMEOUT, settings.autoLockTimeoutMillis)
+            .putBoolean(KEY_BIOMETRIC_ENABLED, settings.biometricUnlockEnabled)
+            .commit()
     }
 
     fun savePin(pin: CharArray) {
@@ -28,10 +43,7 @@ class SecurityPreferences(context: Context) {
             .commit()
     }
 
-    /**
-     * Called only after Android biometric/device authentication succeeds.
-     * Clears PIN verifier and lockout metadata, never business records or encryption keys.
-     */
+    /** Clears only PIN verifier and lockout metadata after Android authentication. */
     fun clearPinAfterAuthenticatedRecovery() {
         preferences.edit()
             .remove(KEY_HASH)
@@ -98,14 +110,22 @@ class SecurityPreferences(context: Context) {
     }
 
     companion object {
+        val ALLOWED_LOCK_TIMEOUTS = setOf(0L, 30_000L, 60_000L, 300_000L)
         private const val FILE_NAME = "security_state"
         private const val KEY_HASH = "pin_hash"
         private const val KEY_SALT = "pin_salt"
         private const val KEY_ITERATIONS = "pin_iterations"
         private const val KEY_FAILURES = "pin_failures"
         private const val KEY_LOCKED_UNTIL = "locked_until"
+        private const val KEY_AUTO_LOCK_TIMEOUT = "auto_lock_timeout_ms"
+        private const val KEY_BIOMETRIC_ENABLED = "biometric_unlock_enabled"
     }
 }
+
+data class SessionSecuritySettings(
+    val autoLockTimeoutMillis: Long = SessionAutoLockPolicy.DEFAULT_TIMEOUT_MILLIS,
+    val biometricUnlockEnabled: Boolean = true,
+)
 
 enum class PinVerifierStatus { NOT_CONFIGURED, READY, CORRUPT }
 
