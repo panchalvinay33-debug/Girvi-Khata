@@ -80,7 +80,6 @@ class BusinessCommitObserver(context: Context) {
                     type = "RELATIONAL_MASTER_LINKS_VERIFIED",
                     title = "Relational master links verified",
                     detail = "${result.masterRows} masters • coverage ${result.coverage}",
-                    countsAsChange = false,
                 )
             }
         }.onFailure { error ->
@@ -89,7 +88,6 @@ class BusinessCommitObserver(context: Context) {
                     type = "RELATIONAL_MASTER_LINKS_FAILED",
                     title = "Relational master links not verified",
                     detail = (error.message ?: "Unknown relational master-link error").take(450),
-                    countsAsChange = false,
                 )
             }
         }
