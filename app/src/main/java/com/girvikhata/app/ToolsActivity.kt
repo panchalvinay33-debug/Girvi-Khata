@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -57,6 +58,7 @@ class ToolsActivity : FragmentActivity() {
                     openSafety = { startActivity(Intent(this, DataSafetyActivity::class.java)) },
                     openOwnerSettings = { startActivity(Intent(this, OwnerSettingsActivity::class.java)) },
                     openMasters = { startActivity(Intent(this, MasterCatalogActivity::class.java)) },
+                    openMasterWorkflow = { startActivity(Intent(this, MasterWorkflowActivity::class.java)) },
                     openSettlement = { startActivity(Intent(this, SettlementCenterActivity::class.java)) },
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
@@ -76,6 +78,7 @@ private fun ToolsScreen(
     openSafety: () -> Unit,
     openOwnerSettings: () -> Unit,
     openMasters: () -> Unit,
+    openMasterWorkflow: () -> Unit,
     openSettlement: () -> Unit,
     openReports: () -> Unit,
     openBackup: () -> Unit,
@@ -93,14 +96,14 @@ private fun ToolsScreen(
         Icon(Icons.Default.Lock, null, tint = navy)
         Spacer(Modifier.height(10.dp))
         Text("Girvi Khata Tools", fontSize = 29.sp, fontWeight = FontWeight.Bold, color = navy)
-        Text("Safety, masters, settlement, reports aur backup", color = Color.Gray)
-        Spacer(Modifier.height(14.dp))
+        Text("Daily entry, masters, safety, settlement, reports aur backup", color = Color.Gray)
+        Spacer(Modifier.height(12.dp))
         Card(
             Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 warning?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
                 Button(onClick = openSafety, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A))) {
                     Icon(Icons.Default.Security, null); Text("  Data Safety Status")
@@ -110,6 +113,9 @@ private fun ToolsScreen(
                 }
                 Button(onClick = openMasters, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00695C))) {
                     Icon(Icons.Default.Tune, null); Text("  Business Masters")
+                }
+                Button(onClick = openMasterWorkflow, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D3A9B))) {
+                    Icon(Icons.Default.EditNote, null); Text("  Master-Assisted Girvi & Payment")
                 }
                 Button(onClick = openSettlement, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7A4D00))) {
                     Icon(Icons.Default.ReceiptLong, null); Text("  Settlement & Release Center")
@@ -126,7 +132,7 @@ private fun ToolsScreen(
                 OutlinedButton(onClick = openPinRecovery, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.LockReset, null); Text("  Purana PIN Kaam Nahi Kar Raha")
                 }
-                Text("Business Masters separate Android-Keystore encrypted catalog mein save hote hain.", color = Color.Gray, fontSize = 12.sp)
+                Text("New girvi/payment ke baad external verified backup banayein.", color = Color.Gray, fontSize = 12.sp)
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
