@@ -3,7 +3,7 @@ name: Security Guard
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, agent/initial-foundation]
 
 permissions:
   contents: read
