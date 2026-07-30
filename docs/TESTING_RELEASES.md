@@ -9,6 +9,60 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling, and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.12.0-alpha.12
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+Build source:
+
+- Commit: `1c028cfd8e1be02509240584e49dcf0317498df8`
+- Android workflow run: `30512547105`
+- Security Guard run: `30512547107`
+- Artifact ID: `8747719885`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `12` / `0.12.0-testing`
+- APK size: `20,075,034 bytes`
+- APK SHA-256: `499349cb8aa4e681a6312e2ac82c4d15485d89799f7bd58354866c746eb0c27b`
+
+Verified scope:
+
+- PIN-protected `Data Safety Status` inside the internal Tools hub.
+- Separate Android-Keystore AES-256-GCM encrypted journal with SHA-256 hash chaining.
+- Business-store verification/recovery state, journal validity, last verified package timestamp/SHA and changes-since-backup are visible.
+- Backup becomes due when none was verified, five committed changes occurred, or seven days elapsed.
+- Process-lifetime `FileObserver` records aggregate events only after the committed primary encrypted business file changes; temporary/safety/quarantine/journal files are ignored.
+- Duplicate file-system callbacks are deduplicated by encrypted-file SHA and timing.
+- Portable backup creation now performs in-memory decrypt/read-back and schema comparison before opening Android share.
+- Verified package SHA/counts reset changes-since-backup to zero.
+- Authenticated PIN recovery appends a separate journal event.
+- Safety activity is internal and requires the existing app PIN.
+- Raw PIN, recovery phrase and plaintext business/backup contents are not written to the journal.
+- New SHA and backup-due tests passed alongside all existing accounting, reporting, backup, restore and recovery tests.
+- Android compilation, stable signing, APK packaging/upload, Security Guard, artifact ZIP and APK integrity passed.
+
+Owner physical-test checklist:
+
+1. Install directly over Alpha 11 without uninstalling.
+2. Confirm existing PIN, fingerprint, customers, girvi, payments, reports, backup, restore, one launcher and privacy blocking remain.
+3. Open Tools → Data Safety Status; wrong PIN must fail and correct PIN must open it.
+4. Confirm business store and journal show healthy.
+5. Make one dummy committed change, wait briefly and tap Refresh; changes-since-backup and recent activity should update once.
+6. Make several quick changes and confirm there is no duplicate-event flood.
+7. Create a backup with a strong recovery phrase; package must self-verify before share opens.
+8. Save the `.gkb` externally in Files/Drive, return to Safety Status and confirm timestamp/SHA appear and changes reset to zero.
+9. Make five later committed changes and confirm `BACKUP DUE` appears.
+10. Perform authenticated PIN recovery and confirm a PIN recovery event appears.
+11. Restart app and confirm journal events/status persist encrypted.
+12. Report missing/duplicate events, wrong counts, false backup status, journal verification failure, crashes or data loss.
+
+Known limitations:
+
+- Alpha 12 journal events for business saves are aggregate committed-state entries, not exact field-level transaction labels.
+- The app verifies the generated encrypted backup package locally but cannot prove the user completed an external Files/Drive save after the Android share chooser opened.
+- Journal and local business safety copies remain device-bound and disappear on uninstall/device loss.
+- Persistence is still an encrypted snapshot file rather than the final transactional encrypted relational database.
+- Automatic Google Drive upload/read-back verification and retention remain pending.
+
 ## v0.11.0-alpha.11
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
@@ -41,34 +95,16 @@ Verified scope:
 - New pure tests cover envelope bounds, retention order, duplicate girvi numbers and missing customer links.
 - Unit tests, Compose/Android build, stable signing, APK upload, Security Guard, artifact ZIP and APK integrity passed.
 
-Owner physical-test checklist:
-
-1. Install directly over Alpha 10 without uninstalling.
-2. Confirm existing PIN, fingerprint, customers, girvi, categories, payments, reports, backup and restore remain.
-3. Create or edit a dummy customer/girvi/payment and restart after each operation; data must persist.
-4. Confirm no normal operation displays an unexpected empty khata.
-5. Create and externally save a fresh `.gkb` backup before any fault simulation.
-6. Do not damage files containing real records; use disposable dummy data/test device only.
-7. With a deliberately damaged primary and a valid local safety copy, confirm automatic recovery.
-8. If all local copies are deliberately damaged, confirm `Data Recovery Required` appears and Dashboard is unavailable.
-9. Confirm Tools disables Reports and Backup but leaves Restore and PIN Recovery enabled.
-10. Restore the external `.gkb`, return to main app and tap `Restore Ke Baad Dobara Check Karein`.
-11. Confirm restored customers, girvi and ledger counts match the backup.
-12. Confirm one launcher icon, Tools access, screenshot blocking and 30-second auto-lock still work.
-
 Known limitations:
 
 - The store is still an encrypted snapshot file, not the final transactional encrypted relational database.
 - Local safety/quarantine copies are Android-Keystore/device bound and disappear on uninstall or device loss.
 - External portable `.gkb` backup remains mandatory.
 - Google Drive automatic upload/read-back verification remains pending.
-- Deliberate fault injection must not be performed on real customer data.
 
 ## v0.10.0-alpha.10
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
-
-Build source:
 
 - Commit: `fad678462cf801e682acf6565fccf4978248fde7`
 - Android workflow run: `30482752429`
@@ -76,39 +112,14 @@ Build source:
 - Artifact ID: `8736432865`
 - Package: `com.girvikhata.app.testing`
 - Version code/name: `10` / `0.10.0-testing`
-- APK size: `20,025,846 bytes`
 - APK SHA-256: `a50da4c6c678723f5d9b0284d8423d97af009823266564b0dbc11378e2f9ed60`
-
-Verified scope:
-
-- `MainActivity` is the only exported launcher activity.
-- The previous `Girvi Tools Test` launcher entry is removed; Tools remains an internal activity.
-- The main app contains a floating Settings/Tools button that opens Reports, Backup, Restore and PIN Recovery.
-- Tools remains reachable from the lock screen so authenticated PIN recovery is not blocked by an unusable PIN verifier.
-- Reports and Backup retain PIN verification; PIN recovery retains biometric/device-credential authentication.
-- A central `GirviKhataApplication` applies Android `FLAG_SECURE` to every activity window.
-- Screenshots, normal screen recording and readable recent-app previews should be blocked where the device honors `FLAG_SECURE`.
-- All unit tests, Android compilation, stable testing signing, APK packaging, artifact upload and Security Guard passed.
-
-Known limitations:
-
-- Tools is opened as an internal activity from a floating button rather than rendered as a native bottom-navigation page.
-- OEM and accessibility capture behavior may differ, so privacy blocking requires physical-device confirmation.
-- Google Drive automatic backup and the final encrypted transactional database remain pending.
+- Single launcher, internal Tools and app-wide FLAG_SECURE added.
 
 ## v0.9.0-alpha.9
 
 **Status: VERIFIED TESTING BUILD — OWNER APPROVED**
 
-Owner confirmation: testing completed successfully; development may continue from the customer-profile and custom-date baseline.
-
 - Commit: `9d31f06c7a5517da3f3afbbb9b1f5435e2c6c9bd`
-- Android workflow run: `30480566880`
-- Security Guard run: `30480566699`
-- Artifact ID: `8735582885`
-- Package: `com.girvikhata.app.testing`
-- Version code/name: `9` / `0.9.0-testing`
-- APK size: `20,025,854 bytes`
 - APK SHA-256: `698dda752567b1f4f3e28500d95c8c3e21f7e2bd61ed09bb818a15b7145eeb17`
 - Customer profile/edit/delete safety and exact custom collection dates owner-approved.
 
@@ -117,9 +128,6 @@ Owner confirmation: testing completed successfully; development may continue fro
 **Status: VERIFIED TESTING BUILD — FUNCTIONALLY INCLUDED IN OWNER-APPROVED ALPHA 9**
 
 - Commit: `c289c31b94ed260d6a686c93ee45489f359ac628`
-- Android workflow run: `30477959563`
-- Security Guard run: `30477959615`
-- Artifact ID: `8734522129`
 - APK SHA-256: `74965918d7a97c33f28faaad8df81486a0342788009d603c4de5057f984a3d96`
 - Added authenticated data-preserving PIN recovery and strict portable `.gkb` restore.
 
