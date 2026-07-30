@@ -21,7 +21,11 @@ class EncryptedMasterCatalogStore(
 
     @Synchronized
     fun load(): MasterCatalog {
-        if (!file.exists()) return MasterCatalog()
+        if (!file.exists()) {
+            val defaults = MasterCatalog()
+            save(defaults)
+            return defaults
+        }
         return read(file)
     }
 
