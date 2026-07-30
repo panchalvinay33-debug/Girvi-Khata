@@ -53,7 +53,7 @@ object SnapshotPortableCodec {
                     put("releaseNote", girvi.releaseNote)
                     put("manualInterestAdjustmentPaise", girvi.manualInterestAdjustmentPaise)
                     put("items", JSONArray().apply {
-                        girvi.effectiveItems.forEach { item ->
+                        portableItems(girvi).forEach { item ->
                             put(JSONObject().apply {
                                 put("id", item.id)
                                 put("categoryName", item.categoryName)
@@ -196,6 +196,29 @@ object SnapshotPortableCodec {
             paymentEntryCount = snapshot.girvis.sumOf { it.payments.size },
         )
     }
+
+    /**
+     * Older records may only have the legacy top-level item fields. GirviRecord.effectiveItems
+     * creates a compatibility item, but its default ID is intentionally runtime-generated.
+     * Portable backup bytes must be deterministic, so the compatibility item's ID is derived
+     * from the stable girvi ID instead.
+     */
+    private fun portableItems(girvi: GirviRecord): List<GirviItemRecord> =
+        if (girvi.items.isNotEmpty()) {
+            girvi.items
+        } else {
+            listOf(
+                GirviItemRecord(
+                    id = "legacy-item-${girvi.id}",
+                    categoryName = girvi.categoryName,
+                    itemName = girvi.itemName,
+                    quantity = 1,
+                    grossWeightGrams = girvi.weightGrams,
+                    deductionWeightGrams = "",
+                    description = "",
+                ),
+            )
+        }
 
     private fun JSONObject.requiredText(name: String): String = optString(name).trim().also {
         require(it.isNotEmpty()) { "Missing $name in backup" }
