@@ -11,8 +11,8 @@ android {
         applicationId = "com.girvikhata.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "0.23.0"
+        versionCode = 2301
+        versionName = "0.23.1-migration"
         manifestPlaceholders["appLabel"] = "Girvi Khata"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -33,9 +33,11 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".testing"
+            // Deliberately separate package so it can be installed alongside the
+            // previously installed testing app whose private signing key is unavailable.
+            applicationIdSuffix = ".migration23"
             versionNameSuffix = "-testing"
-            manifestPlaceholders["appLabel"] = "Girvi Khata Test"
+            manifestPlaceholders["appLabel"] = "Girvi Khata Test 23 Migration"
             signingConfig = signingConfigs.getByName("testing")
         }
         release {
