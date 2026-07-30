@@ -106,7 +106,7 @@ class DataSafetyJournal(
         "${snapshot.customers.size} customers • ${snapshot.girvis.size} girvi • ${snapshot.girvis.sumOf { it.payments.size }} ledger entries"
 
     private fun verifyChain(state: JournalState) {
-        var previous = ""
+        var previous = state.events.firstOrNull()?.previousHash.orEmpty()
         state.events.forEach { event ->
             require(event.previousHash == previous) { "Safety journal chain break" }
             require(event.hash == eventHash(event.id, event.type, event.title, event.detail, event.createdAt, event.previousHash)) { "Safety journal hash mismatch" }
