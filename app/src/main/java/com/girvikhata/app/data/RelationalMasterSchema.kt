@@ -39,7 +39,7 @@ object RelationalMasterSchema {
 
     fun normalized(catalog: MasterCatalog): List<MasterEntry> {
         require(catalog.entries.map { it.id }.toSet().size == catalog.entries.size) { "Duplicate master IDs" }
-        return catalog.entries.sortedWith(compareBy<MasterEntry>({ it.kind.name }, { it.id })).onEach {
+        return catalog.entries.sortedBy { it.id }.onEach {
             require(it.id.isNotBlank()) { "Master ID required" }
             require(it.name.isNotBlank()) { "Master name required" }
             require(it.rateBasisPoints in 0..100_000) { "Master rate invalid" }
