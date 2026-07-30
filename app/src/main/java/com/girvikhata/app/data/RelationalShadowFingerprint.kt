@@ -23,7 +23,7 @@ object RelationalShadowFingerprint {
                     .append(g.createdAt).append('|').append(g.status).append('|')
                     .append(g.manualInterestAdjustmentPaise).append('|').append(g.releasedAt ?: -1L).append('|')
                     .append(escape(g.releaseNote)).append('\n')
-                g.effectiveItems.sortedBy { it.id }.forEach { i ->
+                stableItems(g).sortedBy { it.id }.forEach { i ->
                     append("I|").append(g.id).append('|').append(i.id).append('|')
                         .append(escape(i.categoryName)).append('|').append(escape(i.itemName)).append('|')
                         .append(i.quantity).append('|').append(escape(i.grossWeightGrams)).append('|')
@@ -48,9 +48,20 @@ object RelationalShadowFingerprint {
         customers = snapshot.customers.size,
         categories = snapshot.categories.size,
         girvis = snapshot.girvis.size,
-        items = snapshot.girvis.sumOf { it.effectiveItems.size },
+        items = snapshot.girvis.sumOf { stableItems(it).size },
         payments = snapshot.girvis.sumOf { it.payments.size },
     )
+
+    fun stableItems(girvi: GirviRecord): List<GirviItemRecord> = girvi.items.ifEmpty {
+        listOf(
+            GirviItemRecord(
+                id = "legacy-item-${girvi.id}",
+                categoryName = girvi.categoryName,
+                itemName = girvi.itemName,
+                grossWeightGrams = girvi.weightGrams,
+            ),
+        )
+    }
 
     private fun escape(value: String): String = value
         .replace("\\", "\\\\")
