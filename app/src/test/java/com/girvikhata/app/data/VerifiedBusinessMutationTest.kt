@@ -39,6 +39,31 @@ class VerifiedBusinessMutationTest {
         VerifiedBusinessMutation.UpsertGirvi(girvi.copy(customerId = "missing")).apply(AppSnapshot())
     }
 
+    @Test fun `customer and girvi are created atomically`() {
+        val result = VerifiedBusinessMutation.CreateGirviWithCustomer(customer, girvi).apply(AppSnapshot())
+        assertEquals(customer, result.customers.single())
+        assertEquals(girvi, result.girvis.single())
+    }
+
+    @Test fun `existing identical customer can receive new girvi atomically`() {
+        val result = VerifiedBusinessMutation.CreateGirviWithCustomer(customer, girvi)
+            .apply(AppSnapshot(customers = listOf(customer)))
+        assertEquals(1, result.customers.size)
+        assertEquals(girvi, result.girvis.single())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `atomic girvi create blocks changed existing customer`() {
+        VerifiedBusinessMutation.CreateGirviWithCustomer(customer.copy(name = "Changed"), girvi)
+            .apply(AppSnapshot(customers = listOf(customer)))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `atomic girvi create blocks customer identity mismatch`() {
+        VerifiedBusinessMutation.CreateGirviWithCustomer(customer, girvi.copy(customerId = "other"))
+            .apply(AppSnapshot())
+    }
+
     @Test fun `payment append changes only target girvi`() {
         val other = girvi.copy(id = "g2", girviNumber = "G-2")
         val payment = PaymentRecord(
