@@ -56,6 +56,7 @@ class ToolsActivity : FragmentActivity() {
                     recordsAvailable = recordsAvailable,
                     warning = warning,
                     openSafety = { startActivity(Intent(this, DataSafetyActivity::class.java)) },
+                    openMigration = { startActivity(Intent(this, RelationalShadowActivity::class.java)) },
                     openOwnerSettings = { startActivity(Intent(this, OwnerSettingsActivity::class.java)) },
                     openMasters = { startActivity(Intent(this, MasterCatalogActivity::class.java)) },
                     openMasterWorkflow = { startActivity(Intent(this, MasterWorkflowActivity::class.java)) },
@@ -77,6 +78,7 @@ private fun ToolsScreen(
     recordsAvailable: Boolean,
     warning: String?,
     openSafety: () -> Unit,
+    openMigration: () -> Unit,
     openOwnerSettings: () -> Unit,
     openMasters: () -> Unit,
     openMasterWorkflow: () -> Unit,
@@ -109,6 +111,9 @@ private fun ToolsScreen(
                 warning?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
                 Button(onClick = openSafety, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A))) {
                     Icon(Icons.Default.Security, null); Text("  Data Safety Status")
+                }
+                Button(onClick = openMigration, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF455A64))) {
+                    Icon(Icons.Default.Security, null); Text("  Database Migration Status")
                 }
                 Button(onClick = openOwnerSettings, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F51B5))) {
                     Icon(Icons.Default.Settings, null); Text("  Owner Settings")
