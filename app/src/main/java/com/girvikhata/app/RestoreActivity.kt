@@ -44,12 +44,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.backup.PortableAppBundleCodec
 import com.girvikhata.app.backup.PortableBackupCrypto
 import com.girvikhata.app.backup.SnapshotInspection
 import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.AppSnapshot
+import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.RecordStoreLoadState
+import com.girvikhata.app.domain.MasterCatalog
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.io.File
@@ -62,6 +65,7 @@ class RestoreActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val security = SecurityPreferences(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
+        val masterStore = EncryptedMasterCatalogStore(applicationContext)
         setContent {
             MaterialTheme {
                 RestoreRoot(
@@ -69,20 +73,31 @@ class RestoreActivity : FragmentActivity() {
                     readPackage = ::readPackage,
                     decryptPreview = { bytes, phrase ->
                         val decrypted = PortableBackupCrypto.decrypt(bytes, phrase.toCharArray())
-                        val snapshot = SnapshotPortableCodec.decode(decrypted.payload)
-                        require(snapshot.schemaVersion == decrypted.schemaVersion) { "Backup schema mismatch" }
-                        RestorePreview(snapshot, SnapshotPortableCodec.inspect(decrypted.payload), decrypted.payloadSha256)
+                        val bundle = PortableAppBundleCodec.decode(decrypted.payload)
+                        require(bundle.snapshot.schemaVersion == decrypted.schemaVersion) { "Backup schema mismatch" }
+                        RestorePreview(
+                            snapshot = bundle.snapshot,
+                            masterCatalog = bundle.masterCatalog,
+                            containsPortableMasters = bundle.containsPortableMasters,
+                            inspection = SnapshotPortableCodec.inspect(SnapshotPortableCodec.encode(bundle.snapshot)),
+                            sha256 = decrypted.payloadSha256,
+                        )
                     },
                     commitRestore = { preview, phrase ->
                         when (val current = store.loadState()) {
-                            is RecordStoreLoadState.Ready -> createSafetyBackup(current.snapshot, phrase)
+                            is RecordStoreLoadState.Ready -> createSafetyBackup(current.snapshot, masterStore.load(), phrase)
                             is RecordStoreLoadState.Corrupt -> quarantineDamagedPrimary()
                         }
                         store.save(preview.snapshot)
+                        if (preview.containsPortableMasters) masterStore.save(preview.masterCatalog)
+
                         store.load().also { reloaded ->
                             require(reloaded.customers.size == preview.inspection.customerCount) { "Restore customer verification failed" }
                             require(reloaded.girvis.size == preview.inspection.girviCount) { "Restore girvi verification failed" }
                             require(reloaded.girvis.sumOf { it.payments.size } == preview.inspection.paymentEntryCount) { "Restore ledger verification failed" }
+                        }
+                        if (preview.containsPortableMasters) {
+                            require(masterStore.load() == preview.masterCatalog) { "Restore master catalog verification failed" }
                         }
                     },
                     close = ::finish,
@@ -99,17 +114,17 @@ class RestoreActivity : FragmentActivity() {
         return bytes
     }
 
-    private fun createSafetyBackup(current: AppSnapshot, phrase: String) {
-        val bytes = PortableBackupCrypto.encrypt(
-            SnapshotPortableCodec.encode(current),
-            phrase.toCharArray(),
-            current.schemaVersion,
-        )
+    private fun createSafetyBackup(current: AppSnapshot, masters: MasterCatalog, phrase: String) {
+        val payload = PortableAppBundleCodec.encode(current, masters)
+        val bytes = PortableBackupCrypto.encrypt(payload, phrase.toCharArray(), current.schemaVersion)
         val dir = File(filesDir, "restore_safety").apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val target = File(dir, "pre-restore-$stamp.gkb")
         target.writeBytes(bytes)
         require(target.readBytes().contentEquals(bytes)) { "Pre-restore safety backup verification failed" }
+        val decrypted = PortableBackupCrypto.decrypt(target.readBytes(), phrase.toCharArray())
+        val decoded = PortableAppBundleCodec.decode(decrypted.payload)
+        require(decoded.snapshot == current && decoded.masterCatalog == masters) { "Pre-restore bundle verification failed" }
         dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(3)?.forEach(File::delete)
     }
 
@@ -127,6 +142,8 @@ class RestoreActivity : FragmentActivity() {
 
 private data class RestorePreview(
     val snapshot: AppSnapshot,
+    val masterCatalog: MasterCatalog,
+    val containsPortableMasters: Boolean,
     val inspection: SnapshotInspection,
     val sha256: String,
 )
@@ -192,20 +209,15 @@ private fun RestoreWizard(
     }
 
     RestorePanel("Verified Backup Restore", message, Icons.Default.Restore) {
-        Text("Valid current records ka encrypted safety backup बनेगा. Corrupt primary ho to woh quarantine hoga, empty khata se overwrite nahi.", color = Color.Gray)
-        OutlinedButton(onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Backup File Choose Karein")
-        }
+        Text("New backup business + masters restore karegi. Legacy backup business restore karke current masters preserve karegi.", color = Color.Gray)
+        OutlinedButton(onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Backup File Choose Karein") }
         Text(selectedName, color = Color.Gray, fontSize = 12.sp)
-        OutlinedTextField(
-            phrase, { phrase = it }, label = { Text("Recovery passphrase") },
-            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
-        )
+        OutlinedTextField(phrase, { phrase = it }, label = { Text("Recovery passphrase") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(
             onClick = {
                 val bytes = packageBytes ?: return@Button
                 runCatching { decryptPreview(bytes, phrase) }
-                    .onSuccess { preview = it; message = "Backup verified. Neeche counts check karke confirm karein." }
+                    .onSuccess { preview = it; message = "Backup verified. Counts check karke confirm karein." }
                     .onFailure { preview = null; message = it.message ?: "Backup verify nahi hua" }
             }, enabled = packageBytes != null && phrase.length >= 12 && !restored, modifier = Modifier.fillMaxWidth(),
         ) { Text("Decrypt & Verify Preview") }
@@ -218,6 +230,7 @@ private fun RestoreWizard(
                     Text("Categories: ${data.inspection.categoryCount}")
                     Text("Girvi: ${data.inspection.girviCount}")
                     Text("Ledger entries: ${data.inspection.paymentEntryCount}")
+                    Text(if (data.containsPortableMasters) "Masters: ${data.masterCatalog.entries.size} (restore honge)" else "Legacy backup: current masters preserve honge")
                     Text("SHA-256: ${data.sha256.take(16)}…", fontSize = 12.sp, color = Color.Gray)
                 }
             }
