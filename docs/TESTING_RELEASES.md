@@ -9,6 +9,60 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 3. Test every new workflow, invalid input, close/reopen persistence, scrolling, and crash behavior.
 4. Code stays outside `main` until the owner explicitly approves the milestone.
 
+## v0.13.0-alpha.13
+
+**Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
+
+Build source:
+
+- Commit: `e3a745c1e376f08f5d929fc8f42502dc96db70e9`
+- Android workflow run: `30514393001`
+- Security Guard run: `30514393005`
+- Artifact ID: `8748366094`
+- Package: `com.girvikhata.app.testing`
+- Version code/name: `13` / `0.13.0-testing`
+- APK size: `20,091,418 bytes`
+- APK SHA-256: `7f6d42226dfe973f068f4027749b4a112fec823b8d6a31131ee613b13dda92ca`
+
+Verified scope:
+
+- Backup uses Android `CreateDocument` instead of treating an opened share chooser as completion.
+- The encrypted package is internally decrypt/read-back verified before the document picker opens.
+- The selected Files/Drive document URI is written directly by the app.
+- The same URI is read back with a 128 MB allocation bound.
+- Written bytes must be exactly identical to the prepared package.
+- Read-back bytes must authenticate/decrypt with the recovery phrase and preserve the expected schema and complete snapshot payload.
+- Only successful same-URI read-back verification records the package SHA/counts and resets `changes since backup`.
+- Picker cancellation, provider open/write/read failure, empty/truncated/changed files, decrypt failure or schema/payload mismatch leave backup-due status unchanged.
+- Recovery phrase characters are kept only in memory while the picker/save operation is pending and are overwritten on success, failure, cancellation or activity destruction.
+- `ExternalBackupVerification` tests cover success, changed bytes, truncation, wrong expected schema and wrong recovery phrase.
+- Existing accounting, reporting, backup crypto, restore, corruption recovery and safety-journal tests remained green.
+- Android compilation, stable signing, APK packaging/upload, Security Guard, artifact ZIP and APK integrity passed.
+
+Owner physical-test checklist:
+
+1. Install directly over Alpha 12 without uninstalling.
+2. Confirm existing PIN, fingerprint, customers, girvi, payments, reports, restore, journal and one launcher icon remain.
+3. Open Tools → Data Safety Status and note the current backup-due/change count.
+4. Open Encrypted Backup, verify PIN and enter a strong recovery phrase twice.
+5. Cancel the Files picker once; Safety Status must remain due/unchanged.
+6. Repeat and save to phone Downloads/Files; wait for the explicit `External backup verified` message.
+7. Refresh Safety Status; timestamp/SHA should update and changes-since-backup should be zero.
+8. Confirm the `.gkb` file exists and has non-zero size in the selected folder.
+9. Repeat save to Google Drive through the Android picker and confirm same-URI verification succeeds.
+10. Temporarily remove network access and observe provider behavior honestly; failure must not reset backup status.
+11. Use the saved `.gkb` in Restore preview with the same phrase and verify counts/checksum before cancelling or using disposable test data.
+12. Report picker cancellation bugs, false success, zero/truncated files, provider incompatibility, crashes, data loss or wrong Safety Status.
+
+Known limitations:
+
+- Same-URI read-back proves the Android document provider returned the exact bytes written at verification time; it cannot prove that a remote cloud provider later completed server synchronization or cross-device retention.
+- Process death while the picker is open cancels the in-memory pending operation; the recovery phrase is deliberately not persisted.
+- Business journal entries remain aggregate committed-state entries until the final transactional database layer provides exact transaction metadata.
+- Local journal/safety copies remain device-bound and disappear on uninstall/device loss.
+- Automatic Google Drive API authorization, upload/read-back verification, retention and restore discovery remain pending.
+- Persistence is still the interim encrypted snapshot store rather than the final transactional encrypted relational database.
+
 ## v0.12.0-alpha.12
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
@@ -41,25 +95,9 @@ Verified scope:
 - New SHA and backup-due tests passed alongside all existing accounting, reporting, backup, restore and recovery tests.
 - Android compilation, stable signing, APK packaging/upload, Security Guard, artifact ZIP and APK integrity passed.
 
-Owner physical-test checklist:
-
-1. Install directly over Alpha 11 without uninstalling.
-2. Confirm existing PIN, fingerprint, customers, girvi, payments, reports, backup, restore, one launcher and privacy blocking remain.
-3. Open Tools → Data Safety Status; wrong PIN must fail and correct PIN must open it.
-4. Confirm business store and journal show healthy.
-5. Make one dummy committed change, wait briefly and tap Refresh; changes-since-backup and recent activity should update once.
-6. Make several quick changes and confirm there is no duplicate-event flood.
-7. Create a backup with a strong recovery phrase; package must self-verify before share opens.
-8. Save the `.gkb` externally in Files/Drive, return to Safety Status and confirm timestamp/SHA appear and changes reset to zero.
-9. Make five later committed changes and confirm `BACKUP DUE` appears.
-10. Perform authenticated PIN recovery and confirm a PIN recovery event appears.
-11. Restart app and confirm journal events/status persist encrypted.
-12. Report missing/duplicate events, wrong counts, false backup status, journal verification failure, crashes or data loss.
-
 Known limitations:
 
-- Alpha 12 journal events for business saves are aggregate committed-state entries, not exact field-level transaction labels.
-- The app verifies the generated encrypted backup package locally but cannot prove the user completed an external Files/Drive save after the Android share chooser opened.
+- Alpha 12 opened a share chooser and could not prove that the user completed an external save; Alpha 13 supersedes this completion signal with direct document write/read-back verification.
 - Journal and local business safety copies remain device-bound and disappear on uninstall/device loss.
 - Persistence is still an encrypted snapshot file rather than the final transactional encrypted relational database.
 - Automatic Google Drive upload/read-back verification and retention remain pending.
