@@ -1,9 +1,9 @@
 package com.girvikhata.app.backup
 
-import android.util.Base64
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.domain.MasterCatalog
 import org.json.JSONObject
+import java.util.Base64
 
 /** New backups wrap business records and master catalog; legacy snapshot-only payloads remain readable. */
 object PortableAppBundleCodec {
@@ -17,14 +17,13 @@ object PortableAppBundleCodec {
 
     fun encode(snapshot: AppSnapshot, masterCatalog: MasterCatalog): ByteArray = JSONObject().apply {
         put("bundleVersion", BUNDLE_VERSION)
-        put("snapshot", Base64.encodeToString(SnapshotPortableCodec.encode(snapshot), Base64.NO_WRAP))
-        put("masterCatalog", Base64.encodeToString(MasterCatalogPortableCodec.encode(masterCatalog), Base64.NO_WRAP))
+        put("snapshot", Base64.getEncoder().encodeToString(SnapshotPortableCodec.encode(snapshot)))
+        put("masterCatalog", Base64.getEncoder().encodeToString(MasterCatalogPortableCodec.encode(masterCatalog)))
     }.toString().toByteArray(Charsets.UTF_8)
 
     fun decode(payload: ByteArray): DecodedBundle {
         require(payload.isNotEmpty()) { "Backup payload empty" }
-        val text = String(payload, Charsets.UTF_8)
-        val root = runCatching { JSONObject(text) }.getOrNull()
+        val root = runCatching { JSONObject(String(payload, Charsets.UTF_8)) }.getOrNull()
         if (root?.has("bundleVersion") != true) {
             return DecodedBundle(
                 snapshot = SnapshotPortableCodec.decode(payload),
@@ -44,7 +43,7 @@ object PortableAppBundleCodec {
 
     private fun decodeBase64(value: String, error: String): ByteArray {
         require(value.isNotBlank()) { error }
-        return runCatching { Base64.decode(value, Base64.DEFAULT) }
+        return runCatching { Base64.getDecoder().decode(value) }
             .getOrElse { throw IllegalArgumentException("Backup bundle base64 damaged") }
             .also { require(it.isNotEmpty()) { error } }
     }
