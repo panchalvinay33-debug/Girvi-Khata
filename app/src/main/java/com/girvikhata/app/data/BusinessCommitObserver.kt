@@ -8,6 +8,7 @@ import java.util.concurrent.Executors
 /**
  * Records only committed primary-store replacements. Temporary and safety-copy writes are ignored.
  * The raw business file remains encrypted; only its SHA-256 and aggregate counts enter the journal.
+ * Every verified commit is also mirrored into a transactional encrypted relational shadow database.
  */
 class BusinessCommitObserver(context: Context) {
     private val appContext = context.applicationContext
@@ -48,6 +49,25 @@ class BusinessCommitObserver(context: Context) {
                 explicitReason = "BUSINESS_STORE_COMMITTED",
             )
         }
+        runCatching { EncryptedRelationalShadowStore(appContext).use { it.replaceAll(snapshot) } }
+            .onSuccess { status ->
+                runCatching {
+                    DataSafetyJournal(appContext).recordNamedEvent(
+                        type = "RELATIONAL_SHADOW_VERIFIED",
+                        title = "Relational shadow verified",
+                        detail = "${status.actualCounts?.customers ?: 0} customers • ${status.actualCounts?.girvis ?: 0} girvi • fingerprint ${status.actualFingerprint?.take(16)}…",
+                    )
+                }
+            }
+            .onFailure { error ->
+                runCatching {
+                    DataSafetyJournal(appContext).recordNamedEvent(
+                        type = "RELATIONAL_SHADOW_FAILED",
+                        title = "Relational shadow verification failed",
+                        detail = (error.message ?: "Unknown relational shadow error").take(450),
+                    )
+                }
+            }
     }
 
     private companion object {
