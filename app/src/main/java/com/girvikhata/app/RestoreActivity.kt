@@ -124,7 +124,11 @@ class RestoreActivity : FragmentActivity() {
         require(target.readBytes().contentEquals(bytes)) { "Pre-restore safety backup verification failed" }
         val decrypted = PortableBackupCrypto.decrypt(target.readBytes(), phrase.toCharArray())
         val decoded = PortableAppBundleCodec.decode(decrypted.payload)
-        require(decoded.snapshot == current && decoded.masterCatalog == masters) { "Pre-restore bundle verification failed" }
+        require(
+            SnapshotPortableCodec.encode(decoded.snapshot)
+                .contentEquals(SnapshotPortableCodec.encode(current)),
+        ) { "Pre-restore business verification failed" }
+        require(decoded.masterCatalog == masters) { "Pre-restore master verification failed" }
         dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(3)?.forEach(File::delete)
     }
 
