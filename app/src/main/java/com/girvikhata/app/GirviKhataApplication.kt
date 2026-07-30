@@ -4,16 +4,21 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import android.view.WindowManager
+import com.girvikhata.app.data.BusinessCommitObserver
 
-/**
- * Applies the privacy window policy to every activity in one place.
- * Customer, girvi, payment, report, backup, restore and PIN screens are blocked
- * from screenshots, screen recording and recent-app thumbnails where Android honors FLAG_SECURE.
- */
+/** Central privacy policy plus process-lifetime verified business-commit observer. */
 class GirviKhataApplication : Application(), Application.ActivityLifecycleCallbacks {
+    private lateinit var commitObserver: BusinessCommitObserver
+
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
+        commitObserver = BusinessCommitObserver(this).also { it.start() }
+    }
+
+    override fun onTerminate() {
+        if (::commitObserver.isInitialized) commitObserver.stop()
+        super.onTerminate()
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
