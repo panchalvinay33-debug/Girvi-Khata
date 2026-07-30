@@ -21,6 +21,11 @@
         </provider>
 
         <activity
+            android:name=".MasterWorkflowActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".MasterCatalogActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
