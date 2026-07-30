@@ -28,32 +28,32 @@ class DataSafetyJournal(
 
     @Synchronized
     fun recordSnapshotChange(before: AppSnapshot?, after: AppSnapshot, explicitReason: String? = null) {
-        val state = runCatching { if (file.exists()) readState().also(::verifyChain) else JournalState() }
-            .getOrElse { JournalState(journalError = it.message ?: "Previous journal unreadable") }
+        val state = loadStateOrRecover()
         val detected = if (!explicitReason.isNullOrBlank()) {
             listOf(EventDraft(explicitReason, explicitReason.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercase), snapshotSummary(after)))
         } else detectChanges(before, after)
         if (detected.isEmpty()) return
-        var events = state.events
-        var lastHash = events.lastOrNull()?.hash.orEmpty()
-        detected.forEach { draft ->
-            val createdAt = System.currentTimeMillis()
-            val id = UUID.randomUUID().toString()
-            val hash = eventHash(id, draft.type, draft.title, draft.detail, createdAt, lastHash)
-            events = events + SafetyEvent(id, draft.type, draft.title, draft.detail, createdAt, lastHash, hash)
-            lastHash = hash
-        }
-        val next = state.copy(
-            events = events.takeLast(MAX_EVENTS),
-            changesSinceBackup = state.changesSinceBackup + detected.size,
-            journalError = null,
-        )
-        writeState(next)
+        writeDrafts(state, detected, countAsBusinessChanges = true)
+    }
+
+    /**
+     * Records an explicit owner action without storing raw PINs, passphrases or plaintext account payloads.
+     * The committed snapshot observer remains the single source for the backup-due change counter.
+     */
+    @Synchronized
+    fun recordNamedEvent(type: String, title: String, detail: String) {
+        val safeType = type.trim().uppercase().replace(Regex("[^A-Z0-9_]"), "_")
+        val safeTitle = title.trim()
+        val safeDetail = detail.trim()
+        require(safeType.isNotBlank()) { "Audit event type required" }
+        require(safeTitle.length in 3..80) { "Audit event title invalid" }
+        require(safeDetail.length in 3..500) { "Audit event detail invalid" }
+        writeDrafts(loadStateOrRecover(), listOf(EventDraft(safeType, safeTitle, safeDetail)), countAsBusinessChanges = false)
     }
 
     @Synchronized
     fun markVerifiedBackup(sha256: String, customerCount: Int, girviCount: Int, ledgerCount: Int) {
-        val state = runCatching { if (file.exists()) readState().also(::verifyChain) else JournalState() }.getOrElse { JournalState() }
+        val state = loadStateOrRecover(fallbackOnCorrupt = true)
         val now = System.currentTimeMillis()
         val previous = state.events.lastOrNull()?.hash.orEmpty()
         val detail = "$customerCount customers • $girviCount girvi • $ledgerCount ledger entries • SHA ${sha256.take(16)}…"
@@ -65,6 +65,33 @@ class DataSafetyJournal(
                 lastVerifiedBackupAt = now,
                 lastVerifiedBackupSha256 = sha256,
                 changesSinceBackup = 0,
+                journalError = null,
+            ),
+        )
+    }
+
+    private fun loadStateOrRecover(fallbackOnCorrupt: Boolean = false): JournalState =
+        runCatching { if (file.exists()) readState().also(::verifyChain) else JournalState() }
+            .getOrElse {
+                if (fallbackOnCorrupt) JournalState()
+                else JournalState(journalError = it.message ?: "Previous journal unreadable")
+            }
+
+    private fun writeDrafts(state: JournalState, drafts: List<EventDraft>, countAsBusinessChanges: Boolean) {
+        if (drafts.isEmpty()) return
+        var events = state.events
+        var lastHash = events.lastOrNull()?.hash.orEmpty()
+        drafts.forEach { draft ->
+            val createdAt = System.currentTimeMillis()
+            val id = UUID.randomUUID().toString()
+            val hash = eventHash(id, draft.type, draft.title, draft.detail, createdAt, lastHash)
+            events = events + SafetyEvent(id, draft.type, draft.title, draft.detail, createdAt, lastHash, hash)
+            lastHash = hash
+        }
+        writeState(
+            state.copy(
+                events = events.takeLast(MAX_EVENTS),
+                changesSinceBackup = state.changesSinceBackup + if (countAsBusinessChanges) drafts.size else 0,
                 journalError = null,
             ),
         )
