@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.data.DataSafetyJournal
+import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.security.SecurityPreferences
 
 class PinRecoveryActivity : FragmentActivity() {
@@ -49,6 +51,8 @@ class PinRecoveryActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         security = SecurityPreferences(applicationContext)
+        val store = EncryptedRecordStore(applicationContext)
+        val journal = DataSafetyJournal(applicationContext)
         setContent {
             MaterialTheme {
                 var authenticated by rememberSaveable { mutableStateOf(false) }
@@ -59,6 +63,9 @@ class PinRecoveryActivity : FragmentActivity() {
                     saveNewPin = { pin ->
                         security.clearPinAfterAuthenticatedRecovery()
                         security.savePin(pin.toCharArray())
+                        runCatching {
+                            journal.recordSnapshotChange(null, store.load(), explicitReason = "PIN_RECOVERED")
+                        }
                     },
                     close = ::finish,
                 )
@@ -67,8 +74,7 @@ class PinRecoveryActivity : FragmentActivity() {
     }
 
     private fun authenticateDevice(onSuccess: () -> Unit) {
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
         val prompt = BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
@@ -110,39 +116,16 @@ private fun PinRecoveryScreen(
         Text("PIN Recovery", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = navy)
         Text(message, color = Color.Gray)
         Spacer(Modifier.height(18.dp))
-        Card(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-        ) {
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Is process se customer, girvi, payment ya backup data delete nahi hoga. Sirf PIN verifier replace hoga.",
-                    color = Color.Gray,
-                )
+                Text("Is process se business data delete nahi hoga. Authenticated PIN reset Safety Journal mein record hoga.", color = Color.Gray)
                 if (!authenticated) {
-                    Button(
-                        onClick = authenticate,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = purple),
-                    ) { Text("Fingerprint / Phone Lock Verify") }
+                    Button(onClick = authenticate, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = purple)) {
+                        Text("Fingerprint / Phone Lock Verify")
+                    }
                 } else {
-                    OutlinedTextField(
-                        value = pin,
-                        onValueChange = { pin = it.filter(Char::isDigit).take(6) },
-                        label = { Text("Naya 6-digit PIN") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = confirm,
-                        onValueChange = { confirm = it.filter(Char::isDigit).take(6) },
-                        label = { Text("PIN dobara") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    OutlinedTextField(pin, { pin = it.filter(Char::isDigit).take(6) }, label = { Text("Naya 6-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(confirm, { confirm = it.filter(Char::isDigit).take(6) }, label = { Text("PIN dobara") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                     Button(
                         onClick = {
                             runCatching {
@@ -150,9 +133,7 @@ private fun PinRecoveryScreen(
                                 require(pin.length == 6) { "PIN 6 digits ka hona chahiye" }
                                 saveNewPin(pin)
                             }.onSuccess {
-                                pin = ""
-                                confirm = ""
-                                message = "PIN reset successful. Main app ko naye PIN se kholein."
+                                pin = ""; confirm = ""; message = "PIN reset successful. Main app ko naye PIN se kholein."
                             }.onFailure { message = it.message ?: "PIN reset nahi hua" }
                         },
                         modifier = Modifier.fillMaxWidth(),
