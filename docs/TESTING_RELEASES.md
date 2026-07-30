@@ -15,14 +15,14 @@ Every testing APK must be recorded here before sharing. A build is shareable onl
 
 Build source:
 
-- Commit: `1c028cfd8e1be02509240584e49dcf0317498df8`
-- Android workflow run: `30512547105`
-- Security Guard run: `30512547107`
-- Artifact ID: `8747719885`
+- Commit: `316db12c4710830687f264bc7e11242ba67a8842`
+- Android workflow run: `30512974288`
+- Security Guard run: `30512974297`
+- Artifact ID: `8747878288`
 - Package: `com.girvikhata.app.testing`
 - Version code/name: `12` / `0.12.0-testing`
 - APK size: `20,075,034 bytes`
-- APK SHA-256: `499349cb8aa4e681a6312e2ac82c4d15485d89799f7bd58354866c746eb0c27b`
+- APK SHA-256: `2fba24b1e971ed517f15bf9ea0996478ad8e369357d050fbb01178fd2e77461e`
 
 Verified scope:
 
@@ -32,11 +32,12 @@ Verified scope:
 - Backup becomes due when none was verified, five committed changes occurred, or seven days elapsed.
 - Process-lifetime `FileObserver` records aggregate events only after the committed primary encrypted business file changes; temporary/safety/quarantine/journal files are ignored.
 - Duplicate file-system callbacks are deduplicated by encrypted-file SHA and timing.
-- Portable backup creation now performs in-memory decrypt/read-back and schema comparison before opening Android share.
+- Portable backup creation performs in-memory decrypt/read-back and schema comparison before Android share opens.
 - Verified package SHA/counts reset changes-since-backup to zero.
 - Authenticated PIN recovery appends a separate journal event.
 - Safety activity is internal and requires the existing app PIN.
 - Raw PIN, recovery phrase and plaintext business/backup contents are not written to the journal.
+- Journal retains the latest 500 entries; retained segments verify from their preserved previous-hash anchor so pruning does not cause a false chain failure.
 - New SHA and backup-due tests passed alongside all existing accounting, reporting, backup, restore and recovery tests.
 - Android compilation, stable signing, APK packaging/upload, Security Guard, artifact ZIP and APK integrity passed.
 
@@ -67,40 +68,14 @@ Known limitations:
 
 **Status: VERIFIED TESTING BUILD — OWNER PHYSICAL TEST PENDING**
 
-Build source:
-
 - Commit: `ed866d3580e747108ed5a4a53a0b36798a3eba6a`
 - Android workflow run: `30485337748`
 - Security Guard run: `30485348627`
 - Artifact ID: `8737489498`
 - Package: `com.girvikhata.app.testing`
 - Version code/name: `11` / `0.11.0-testing`
-- APK size: `20,042,234 bytes`
 - APK SHA-256: `a1f95823e34ca86cb762e2d545984ca28699a1c470089203bb03fce24f4f0741`
-
-Verified scope:
-
-- The encrypted local store no longer converts corruption into an empty/default khata.
-- Normal saves validate schema, duplicate IDs/numbers, customer links, statuses, principal and timestamps before writing.
-- Existing valid primary is copied into rotating encrypted pre-save safety storage; latest five copies are retained.
-- New primary writes use a temporary file, filesystem sync, decrypt/decode comparison before replacement and final primary read-back verification.
-- Envelope magic, format version, file size, IV length, ciphertext length and trailing bytes are validated before decryption/allocation.
-- A damaged primary automatically tries newest safety copies and promotes the first verified copy.
-- Damaged primary bytes are quarantined; latest two quarantine files are retained.
-- If no valid local copy remains, Dashboard is blocked and `Data Recovery Required` is shown instead of empty records.
-- Main recovery screen opens verified `.gkb` restore and supports retry without reinstalling.
-- Tools blocks Reports and new-backup creation during corruption while Restore and PIN Recovery remain available.
-- Restore can quarantine a fully corrupt primary and install a verified portable snapshot.
-- Valid current data still receives an encrypted pre-restore safety backup; file bytes and restored record counts are checked.
-- New pure tests cover envelope bounds, retention order, duplicate girvi numbers and missing customer links.
-- Unit tests, Compose/Android build, stable signing, APK upload, Security Guard, artifact ZIP and APK integrity passed.
-
-Known limitations:
-
-- The store is still an encrypted snapshot file, not the final transactional encrypted relational database.
-- Local safety/quarantine copies are Android-Keystore/device bound and disappear on uninstall or device loss.
-- External portable `.gkb` backup remains mandatory.
-- Google Drive automatic upload/read-back verification remains pending.
+- Strict encrypted-store verification, rotating safety copies, quarantine and explicit recovery screen added.
 
 ## v0.10.0-alpha.10
 
