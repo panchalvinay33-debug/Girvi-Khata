@@ -29,7 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.backup.ExternalBackupVerification
 import com.girvikhata.app.backup.PortableBackupCrypto
 import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.DataSafetyJournal
@@ -98,9 +99,13 @@ class BackupActivity : FragmentActivity() {
             val snapshot = store.load()
             val payload = SnapshotPortableCodec.encode(snapshot)
             val encrypted = PortableBackupCrypto.encrypt(payload, secret, snapshot.schemaVersion)
-            val internalReadBack = PortableBackupCrypto.decrypt(encrypted, secret)
-            check(internalReadBack.payload.contentEquals(payload)) { "Backup package internal read-back failed" }
-            check(internalReadBack.schemaVersion == snapshot.schemaVersion) { "Backup schema verification failed" }
+            ExternalBackupVerification.verify(
+                expectedPackage = encrypted,
+                writtenPackage = encrypted,
+                expectedPayload = payload,
+                expectedSchemaVersion = snapshot.schemaVersion,
+                passphrase = secret,
+            )
 
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             pendingBackup?.clearSecret()
@@ -138,15 +143,16 @@ class BackupActivity : FragmentActivity() {
         runCatching {
             writeDocument(uri, pending.encryptedBytes)
             val writtenBytes = readDocument(uri)
-            check(writtenBytes.contentEquals(pending.encryptedBytes)) { "Saved file byte verification failed" }
+            val verification = ExternalBackupVerification.verify(
+                expectedPackage = pending.encryptedBytes,
+                writtenPackage = writtenBytes,
+                expectedPayload = pending.originalPayload,
+                expectedSchemaVersion = pending.schemaVersion,
+                passphrase = pending.passphrase,
+            )
 
-            val externalReadBack = PortableBackupCrypto.decrypt(writtenBytes, pending.passphrase)
-            check(externalReadBack.schemaVersion == pending.schemaVersion) { "Saved backup schema mismatch" }
-            check(externalReadBack.payload.contentEquals(pending.originalPayload)) { "Saved backup payload mismatch" }
-
-            val sha = DataSafetyJournal.sha256(writtenBytes)
             journal.markVerifiedBackup(
-                sha,
+                verification.sha256,
                 pending.customerCount,
                 pending.girviCount,
                 pending.ledgerCount,
@@ -155,7 +161,7 @@ class BackupActivity : FragmentActivity() {
                 pending.customerCount,
                 pending.girviCount,
                 pending.ledgerCount,
-                sha,
+                verification.sha256,
             )
         }.onSuccess { result ->
             message = "External backup verified: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • SHA ${result.sha256.take(12)}…"
@@ -168,14 +174,14 @@ class BackupActivity : FragmentActivity() {
     }
 
     private fun writeDocument(uri: Uri, bytes: ByteArray) {
-        val descriptor = contentResolver.openFileDescriptor(uri, "rwt")
-            ?: contentResolver.openFileDescriptor(uri, "w")
+        val descriptor = runCatching { contentResolver.openFileDescriptor(uri, "rwt") }.getOrNull()
+            ?: runCatching { contentResolver.openFileDescriptor(uri, "w") }.getOrNull()
             ?: error("Selected file open nahi hui")
         descriptor.use { pfd ->
             FileOutputStream(pfd.fileDescriptor).use { output ->
                 output.write(bytes)
                 output.flush()
-                pfd.fileDescriptor.sync()
+                runCatching { pfd.fileDescriptor.sync() }
             }
         }
     }
