@@ -33,11 +33,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.EncryptedRelationalShadowStore
 import com.girvikhata.app.data.MigrationDiagnosticReport
 import com.girvikhata.app.data.RelationalCutoverPolicy
 import com.girvikhata.app.data.RelationalDualReadReport
+import com.girvikhata.app.data.RelationalMasterInstallResult
+import com.girvikhata.app.data.RelationalMasterSchemaInstaller
 import com.girvikhata.app.data.RelationalMigrationDiagnostics
 import com.girvikhata.app.data.RelationalShadowStatus
 import com.girvikhata.app.security.PinVerificationResult
@@ -50,14 +53,18 @@ data class MigrationDashboardState(
     val dualRead: RelationalDualReadReport,
     val blockers: List<String>,
     val diagnostic: MigrationDiagnosticReport? = null,
+    val masters: RelationalMasterInstallResult = RelationalMasterInstallResult(false, reason = "Master schema unavailable"),
 )
 
 class RelationalShadowActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val records = EncryptedRecordStore(applicationContext)
+        val masterCatalog = EncryptedMasterCatalogStore(applicationContext)
+        val masterInstaller = RelationalMasterSchemaInstaller(applicationContext)
         val security = SecurityPreferences(applicationContext)
         val diagnostics = RelationalMigrationDiagnostics(applicationContext)
+
         fun dashboard(): MigrationDashboardState {
             val snapshot = records.load()
             return EncryptedRelationalShadowStore(applicationContext).use { shadow ->
@@ -65,11 +72,18 @@ class RelationalShadowActivity : FragmentActivity() {
                 val dual = shadow.dualReadComparison(snapshot)
                 val blockers = RelationalCutoverPolicy.blockers(shadow.cutoverEvidence(ownerApproved = false)).toMutableList()
                 val diagnostic = diagnostics.latest()
+                val masters = masterInstaller.status()
                 if (diagnostic?.rollbackVerified != true) blockers += "Device rollback simulation pending"
                 if (diagnostic?.benchmarkVerified != true) blockers += "Device benchmark pending"
-                MigrationDashboardState(status, dual, blockers.distinct(), diagnostic)
+                if (!masters.installed) blockers += "Relational master schema/link verification pending"
+                MigrationDashboardState(status, dual, blockers.distinct(), diagnostic, masters)
             }
         }
+
+        fun syncMasters() {
+            masterInstaller.synchronize(records.load(), masterCatalog.load())
+        }
+
         setContent {
             MaterialTheme {
                 RelationalShadowRoot(
@@ -78,17 +92,17 @@ class RelationalShadowActivity : FragmentActivity() {
                     incrementalSync = {
                         val snapshot = records.load()
                         EncryptedRelationalShadowStore(applicationContext).use { it.syncIncremental(snapshot) }
+                        syncMasters()
                         dashboard()
                     },
                     rebuild = {
                         val snapshot = records.load()
                         EncryptedRelationalShadowStore(applicationContext).use { it.replaceAll(snapshot) }
+                        syncMasters()
                         dashboard()
                     },
-                    runDiagnostics = {
-                        diagnostics.run(records.load())
-                        dashboard()
-                    },
+                    syncMasterLinks = { syncMasters(); dashboard() },
+                    runDiagnostics = { diagnostics.run(records.load()); dashboard() },
                     close = ::finish,
                 )
             }
@@ -102,6 +116,7 @@ private fun RelationalShadowRoot(
     loadDashboard: () -> MigrationDashboardState,
     incrementalSync: () -> MigrationDashboardState,
     rebuild: () -> MigrationDashboardState,
+    syncMasterLinks: () -> MigrationDashboardState,
     runDiagnostics: () -> MigrationDashboardState,
     close: () -> Unit,
 ) {
@@ -153,6 +168,24 @@ private fun RelationalShadowRoot(
             }
         }
 
+        val master = dashboard.masters
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (master.installed) Color(0xFFE8F5E9) else Color(0xFFFFEBEE))) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Relational Master IDs", fontWeight = FontWeight.Bold)
+                Text(if (master.installed) "SCHEMA + LINKS VERIFIED ✅" else "PENDING / FAILED ⚠️")
+                Text("Encrypted master rows: ${master.masterRows}")
+                master.coverage?.let { c ->
+                    Text("Item master: ${c.itemMasterLinked}/${c.totalItems}")
+                    Text("Unit: ${c.unitLinked}/${c.totalItems} • Locker: ${c.lockerLinked}/${c.totalItems}")
+                    Text("Interest plan: ${c.interestPlanLinked}/${c.totalGirvis}")
+                    Text("Payment mode: ${c.paymentModeLinked}/${c.totalPayments}")
+                    Text("Complete automatic coverage: ${if (c.complete) "YES" else "NO — manual/unresolved values preserved"}", fontSize = 12.sp)
+                }
+                Text("Last verified: ${master.verifiedAt?.let { DateFormat.getDateTimeInstance().format(Date(it)) } ?: "Never"}", fontSize = 12.sp)
+                master.reason?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }
+
         dashboard.diagnostic?.let { d ->
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (d.rollbackVerified && d.benchmarkVerified) Color(0xFFE8F5E9) else Color(0xFFFFEBEE))) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -175,19 +208,12 @@ private fun RelationalShadowRoot(
             }
         }
 
-        message?.let { Text(it, color = if (it.startsWith("Verified") || it.startsWith("Synced") || it.startsWith("Status") || it.startsWith("Diagnostic")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) }
-        Button(onClick = {
-            runCatching(runDiagnostics).onSuccess { dashboard = it; message = "Diagnostic rollback and benchmark completed" }.onFailure { message = it.message ?: "Diagnostic failed" }
-        }, modifier = Modifier.fillMaxWidth(), colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF8B1E1E))) { Text("Run Device Rollback & Benchmark Proof") }
-        Button(onClick = {
-            runCatching(incrementalSync).onSuccess { dashboard = it; message = "Synced incremental delta and verified dual read" }.onFailure { message = it.message ?: "Incremental sync failed" }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Incremental Sync & Dual-Read Verify") }
-        OutlinedButton(onClick = {
-            runCatching(rebuild).onSuccess { dashboard = it; message = "Verified full relational rebuild" }.onFailure { message = it.message ?: "Relational rebuild failed" }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Full Rebuild & Verify") }
-        OutlinedButton(onClick = {
-            runCatching(loadDashboard).onSuccess { dashboard = it; message = "Status refreshed" }.onFailure { message = it.message ?: "Status refresh failed" }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Refresh Status") }
+        message?.let { Text(it, color = if (it.startsWith("Verified") || it.startsWith("Synced") || it.startsWith("Status") || it.startsWith("Diagnostic") || it.startsWith("Master")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) }
+        Button(onClick = { runCatching(syncMasterLinks).onSuccess { dashboard = it; message = "Master schema and links verified" }.onFailure { message = it.message ?: "Master-link sync failed" } }, modifier = Modifier.fillMaxWidth()) { Text("Install / Verify Master-ID Links") }
+        Button(onClick = { runCatching(runDiagnostics).onSuccess { dashboard = it; message = "Diagnostic rollback and benchmark completed" }.onFailure { message = it.message ?: "Diagnostic failed" } }, modifier = Modifier.fillMaxWidth(), colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF8B1E1E))) { Text("Run Device Rollback & Benchmark Proof") }
+        Button(onClick = { runCatching(incrementalSync).onSuccess { dashboard = it; message = "Synced incremental delta and verified dual read" }.onFailure { message = it.message ?: "Incremental sync failed" } }, modifier = Modifier.fillMaxWidth()) { Text("Incremental Sync & Dual-Read Verify") }
+        OutlinedButton(onClick = { runCatching(rebuild).onSuccess { dashboard = it; message = "Verified full relational rebuild" }.onFailure { message = it.message ?: "Relational rebuild failed" } }, modifier = Modifier.fillMaxWidth()) { Text("Full Rebuild & Verify") }
+        OutlinedButton(onClick = { runCatching(loadDashboard).onSuccess { dashboard = it; message = "Status refreshed" }.onFailure { message = it.message ?: "Status refresh failed" } }, modifier = Modifier.fillMaxWidth()) { Text("Refresh Status") }
         OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
