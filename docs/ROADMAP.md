@@ -1,6 +1,6 @@
 # Girvi Khata Master Roadmap
 
-Last updated: 2026-07-30 after Alpha 14.
+Last updated: 2026-07-30 after owner approval of Alpha 21.
 
 ## Product promise
 
@@ -8,76 +8,81 @@ A private, offline-first, single-owner digital girvi ledger. Business records re
 
 ## Mandatory delivery gate
 
-`development branch → automated checks → separate versioned APK → owner physical test → fixes/retest → explicit owner approval → merge into main`
+`approved main base → new development branch → automated checks → separate versioned APK → owner physical test → fixes/retest → explicit owner approval → merge into main`
 
 ## Current status
 
-- Latest owner-approved functional baseline: `v0.9.0-alpha.9`
-- Latest CI-verified testing build: `v0.14.0-alpha.14`
-- Alpha 10–14 owner physical tests: pending
-- Development branch: `agent/initial-foundation`
-- `main`: untouched
-- Repository must become Private before OAuth credentials, production signing or real data are introduced.
-- Whole-product estimate toward a safe first stable release: about 65%; see `PROJECT_COMPLETION_AUDIT.md`.
+- Owner-approved stable base: `v0.21.0-alpha.21`
+- Exact tested source: `eec78e0aba6a8d168baeb09959fe93e2fd85733f`
+- Permanent rollback branch: `baseline/alpha21-owner-approved`
+- PR #1: authorized for merge to `main`
+- Future relational source-of-truth cutover: not approved
+- Repository must become Private before OAuth credentials, production signing or real data are introduced
+- Whole-product estimate toward a safe first stable release: about 83%
 
 ## Phase 0 — Governance and delivery
 
-- [x] Privacy boundary, security policy, decisions/progress/testing/current-state ledgers
+- [x] Privacy boundary, security policy and authoritative project ledgers
 - [x] Android CI, Security Guard and stable in-place testing signature
 - [x] Mandatory owner-test-before-merge workflow
-- [ ] Owner-test Alpha 10–14 and fix/retest regressions
-- [ ] Advance an explicitly approved baseline into `main`
+- [x] Owner-approved Alpha 21 baseline
+- [x] Permanent Alpha 21 rollback branch and recovery runbook
+- [x] Authorization to advance approved work into `main`
 - [ ] Change repository visibility to Private
-- [ ] Enable branch protection and required checks
+- [ ] Enable branch protection and required checks after baseline merge
+- [ ] Create a fresh post-Alpha-21 development branch from `main`
 
 ## Phase 1 — Security entry and recovery
 
 - [x] PIN enrollment, PBKDF2 verifier, weak-PIN rejection and progressive lockout
-- [x] Strong biometric unlock and authenticated data-preserving PIN recovery
-- [x] Configurable biometric toggle
-- [x] Configurable auto-lock: immediate, 30 sec, 1 min, 5 min
+- [x] Strong biometric unlock and authenticated PIN recovery
+- [x] Configurable biometric toggle and auto-lock
 - [x] App-wide secure-window policy and single launcher
-- [x] PIN verifier structure diagnostic
-- [ ] Owner-device timing/biometric/privacy verification
+- [x] PIN verifier diagnostic
+- [x] Owner physical approval through Alpha 21
 - [ ] Root/device-integrity warning and final production security checklist
 
 ## Phase 2 — Shop customization
 
-- [x] Category create/activate/deactivate with active-girvi protection
-- [x] Category rename with linked girvi/item propagation
-- [x] Category reorder
-- [ ] Item and unit management
-- [ ] Saved interest-plan management and girvi-wizard selection
-- [ ] Payment-mode, locker, status and custom-field management
+- [x] Category create/activate/deactivate, rename and reorder
+- [x] Item and unit management
+- [x] Saved interest-plan management and workflow selection
+- [x] Payment-mode and locker management
+- [x] Portable master backup/restore
+- [ ] Dedicated relational master-ID columns
+- [ ] Optional custom fields/status master after database schema stabilization
 
 ## Phase 3 — Customers and girvi
 
 - [x] Encrypted customer/category/girvi persistence
 - [x] Existing-customer picker, search and profile editing
-- [x] Duplicate-mobile protection and history-safe customer deletion
-- [x] Multiple items, quantity, weights and description
-- [x] Deterministic date-wise girvi numbers and status/details
-- [x] Customer-wise khata
+- [x] Duplicate-mobile protection and history-safe deletion
+- [x] Multiple items, quantity, weights and descriptions
+- [x] Master-assisted and advanced multi-item entry
+- [x] Deterministic girvi numbers and customer khata
+- [x] Relational shadow with dual-read fingerprint verification
+- [x] Device rollback and benchmark diagnostics
 - [ ] Photo/document media vault
-- [ ] Transaction-safe encrypted relational database and migration
+- [ ] Owner-approved relational source-of-truth cutover
 
 ## Phase 4 — Calculation engine
 
 - [x] Monthly/daily/yearly/fixed/compound/manual/no-interest foundations
 - [x] Grace, partial month, rounding, compounding, period breakup and adjustments
+- [x] Saved plan selection in entry workflows
 - [x] Settlement UI and tests
-- [ ] Saved plan selection in girvi wizard
-- [ ] Historical-date and long-period edge-case expansion
+- [ ] Historical-date and very-long-period edge-case expansion
 
 ## Phase 5 — Payments and release
 
-- [x] Interest-first, principal-first and custom allocation
+- [x] Interest-first, principal-first and exact custom allocation
 - [x] Payment posting, modes, notes and receipt numbers
 - [x] Immutable history and linked reversals
+- [x] Manual interest adjustment with mandatory reason
 - [x] Settlement totals, release block, override and release metadata
-- [ ] Manual interest-adjustment UI with mandatory reason
-- [ ] Final release checklist and production receipt
-- [ ] Exact database-transaction audit events
+- [x] Settlement/release receipt text
+- [ ] Production PDF receipt and final release checklist template
+- [ ] Exact relational write-transaction audit after cutover
 
 ## Phase 6 — Search, reports and exports
 
@@ -92,33 +97,42 @@ A private, offline-first, single-owner digital girvi ledger. Business records re
 
 ## Phase 7 — Backup, recovery and safety
 
-- [x] Portable versioned snapshot serializer and AES-256-GCM package
+- [x] Portable encrypted business and master bundle
 - [x] PBKDF2 recovery phrase, random salt/nonce and tamper validation
-- [x] Strict restore preview/confirmation and read-back verification
-- [x] Rotating local safety copies, quarantine and recovery-required screen
+- [x] Direct Files/Drive write and same-URI verification
+- [x] Strict restore preview and legacy compatibility
+- [x] Rotating safety copies, quarantine and recovery-required screen
 - [x] Data Safety dashboard and encrypted hash-chained journal
-- [x] Direct Files/Drive document write and same-URI read-back verification
-- [ ] Owner physical test of backup/restore/provider compatibility
-- [ ] User-visible local safety-copy rollback management
-- [ ] Google Drive API authorization, upload/read-back verification and retention
+- [x] Approved rollback branch and documented recovery process
+- [ ] User-visible local safety-copy selection
+- [ ] Google Drive API authorization, upload verification and retention
 - [ ] WorkManager scheduling, retries and cloud restore discovery
 
 ## Phase 8 — Navigation and UX
 
 - [x] One launcher and internal Tools hub
-- [x] Owner Settings, Safety, Reports, Backup, Restore and PIN Recovery reachable internally
-- [ ] Replace floating Tools activity hop with native main-app navigation
-- [ ] Accessibility, font scaling, keyboard behavior and broader screen-size testing
-- [ ] Final onboarding/help and wording review
+- [x] Owner Settings, Masters, Safety, Reports, Backup, Restore and PIN Recovery
+- [x] Advanced and classic workflow fallbacks
+- [ ] Replace floating Tools activity hop with native main navigation
+- [ ] Accessibility, font scaling, keyboard and wider screen-size testing
+- [ ] Final onboarding/help and language review
 
-## Phase 9 — Production hardening
+## Phase 9 — Database migration and production hardening
 
-- [x] Secret/file guard, Android backup exclusion, stable testing builds and unit suite
-- [x] Explicit corrupt-store recovery; no silent empty fallback
-- [ ] Encrypted relational database with transaction/migration tests
-- [ ] Low-storage, large-data, interrupted-write, clock-change, offline and device-loss tests
+- [x] Transactional relational shadow schema
+- [x] Sensitive text cell encryption and foreign-key constraints
+- [x] Incremental delta synchronization
+- [x] Independent dual-read comparison
+- [x] Deterministic large-data planner/fingerprint tests
+- [x] Device-executable rollback simulation and benchmark
+- [x] Low-space preflight policy
+- [ ] Dedicated Unit/Locker/Plan/Payment Mode columns and explicit migration
+- [ ] Relational business write APIs with snapshot fallback
+- [ ] Controlled completely-full-storage and process-kill testing
+- [ ] Long dual-read observation period
+- [ ] Separate owner approval for relational read/write cutover
 - [ ] Private production signing and release verification
-- [ ] Pilot rollout, feedback, crash diagnosis and rollback plan
+- [ ] Pilot rollout, crash diagnosis and recovery rehearsal
 
 ## Out of scope for first stable release
 
