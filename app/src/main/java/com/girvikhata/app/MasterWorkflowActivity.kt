@@ -42,6 +42,10 @@ import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.GirviItemRecord
 import com.girvikhata.app.data.GirviRecord
+import com.girvikhata.app.data.RelationalShadowFingerprint
+import com.girvikhata.app.data.VerifiedBusinessMutation
+import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
+import com.girvikhata.app.data.VerifiedBusinessWriteRequest
 import com.girvikhata.app.domain.CustomerCandidate
 import com.girvikhata.app.domain.CustomerMatcher
 import com.girvikhata.app.domain.GirviSequence
@@ -63,13 +67,49 @@ class MasterWorkflowActivity : FragmentActivity() {
         val records = EncryptedRecordStore(applicationContext)
         val masters = EncryptedMasterCatalogStore(applicationContext)
         val security = SecurityPreferences(applicationContext)
+        val coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = records)
         setContent {
             MaterialTheme {
                 MasterWorkflowRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
                     loadSnapshot = records::load,
                     loadCatalog = masters::load,
-                    saveSnapshot = records::save,
+                    commitGirvi = { screenSnapshot, customer, girvi ->
+                        var expected = RelationalShadowFingerprint.sha256(screenSnapshot)
+                        if (screenSnapshot.customers.none { it.id == customer.id }) {
+                            expected = coordinator.execute(
+                                VerifiedBusinessWriteRequest(
+                                    expectedFingerprint = expected,
+                                    mutation = VerifiedBusinessMutation.UpsertCustomer(customer),
+                                    title = "Customer added before girvi",
+                                ),
+                            ).afterFingerprint
+                        }
+                        val result = coordinator.execute(
+                            VerifiedBusinessWriteRequest(
+                                expectedFingerprint = expected,
+                                mutation = VerifiedBusinessMutation.UpsertGirvi(girvi),
+                                title = "Girvi ${girvi.girviNumber} created",
+                            ),
+                        )
+                        "Saved: ${girvi.girviNumber} • TX ${result.transactionId.take(8)}"
+                    },
+                    commitPayment = { screenSnapshot, updated ->
+                        val original = screenSnapshot.girvis.firstOrNull { it.id == updated.id }
+                            ?: error("Girvi refresh required")
+                        require(updated.payments.size == original.payments.size + 1) {
+                            "Payment transaction shape invalid; refresh and retry"
+                        }
+                        val payment = updated.payments.last()
+                        val result = coordinator.execute(
+                            VerifiedBusinessWriteRequest(
+                                expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
+                                mutation = VerifiedBusinessMutation.AppendPayment(updated.id, payment),
+                                title = "Payment ${payment.receiptNumber} received",
+                            ),
+                        )
+                        "Saved payment: ${payment.receiptNumber} • TX ${result.transactionId.take(8)}"
+                    },
                     close = ::finish,
                 )
             }
@@ -84,7 +124,8 @@ private fun MasterWorkflowRoot(
     verifyPin: (String) -> PinVerificationResult,
     loadSnapshot: () -> AppSnapshot,
     loadCatalog: () -> MasterCatalog,
-    saveSnapshot: (AppSnapshot) -> Unit,
+    commitGirvi: (AppSnapshot, CustomerRecord, GirviRecord) -> String,
+    commitPayment: (AppSnapshot, GirviRecord) -> String,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
@@ -103,9 +144,12 @@ private fun MasterWorkflowRoot(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Master-Assisted Entry", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color(0xFF171752))
-                Text("Saved masters ka daily use", color = Color.Gray)
+                Text("Verified snapshot + relational write", color = Color.Gray)
             }
-            TextButton(onClick = close) { Text("Close") }
+            Row {
+                TextButton(onClick = { snapshot = loadSnapshot() }) { Text("Refresh Data") }
+                TextButton(onClick = close) { Text("Close") }
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
@@ -121,15 +165,14 @@ private fun MasterWorkflowRoot(
         }
         when (tab) {
             WorkflowTab.NEW_GIRVI -> MasterNewGirvi(snapshot, catalog) { customer, girvi ->
-                val customers = if (snapshot.customers.any { it.id == customer.id }) snapshot.customers else snapshot.customers + customer
-                val next = snapshot.copy(customers = customers, girvis = snapshot.girvis + girvi)
-                saveSnapshot(next)
-                snapshot = next
+                val result = commitGirvi(snapshot, customer, girvi)
+                snapshot = loadSnapshot()
+                result
             }
             WorkflowTab.RECEIVE_PAYMENT -> MasterPayment(snapshot, catalog) { updated ->
-                val next = snapshot.copy(girvis = snapshot.girvis.map { if (it.id == updated.id) updated else it })
-                saveSnapshot(next)
-                snapshot = next
+                val result = commitPayment(snapshot, updated)
+                snapshot = loadSnapshot()
+                result
             }
         }
     }
@@ -165,7 +208,7 @@ private fun WorkflowPinScreen(verifyPin: (String) -> PinVerificationResult, succ
 }
 
 @Composable
-private fun MasterNewGirvi(snapshot: AppSnapshot, catalog: MasterCatalog, save: (CustomerRecord, GirviRecord) -> Unit) {
+private fun MasterNewGirvi(snapshot: AppSnapshot, catalog: MasterCatalog, save: (CustomerRecord, GirviRecord) -> String) {
     val categories = snapshot.categories.filter { it.active }.map { it.name }
     val items = MasterCatalogOperations.active(catalog, MasterKind.ITEM)
     val units = MasterCatalogOperations.active(catalog, MasterKind.UNIT)
@@ -248,9 +291,9 @@ private fun MasterNewGirvi(snapshot: AppSnapshot, catalog: MasterCatalog, save: 
                     }.joinToString(" • ")
                     val item = GirviItemRecord(categoryName = category, itemName = itemName, quantity = qty, grossWeightGrams = gross, deductionWeightGrams = deduction, description = metadata)
                     val girvi = GirviRecord(girviNumber = GirviSequence.nextNumber(snapshot.girvis.map { it.girviNumber }), customerId = customer.id, customerName = customer.name, categoryName = category, itemName = itemName, weightGrams = gross, principalPaise = (amount * 100).roundToLong(), monthlyRateBasisPoints = rateBp, items = listOf(item))
-                    save(customer, girvi)
+                    val successMessage = save(customer, girvi)
                     customerName = ""; customerId = null; mobile = ""; address = ""; manualItem = ""; principal = ""; gross = ""; deduction = ""; note = ""
-                    message = "Saved: ${girvi.girviNumber} • verified encrypted store"
+                    message = successMessage
                 }.onFailure { message = it.message ?: "Girvi save failed" }
             }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5146B8))) { Text("Master Choices Ke Saath Girvi Save Karein") }
         }
@@ -258,7 +301,7 @@ private fun MasterNewGirvi(snapshot: AppSnapshot, catalog: MasterCatalog, save: 
 }
 
 @Composable
-private fun MasterPayment(snapshot: AppSnapshot, catalog: MasterCatalog, save: (GirviRecord) -> Unit) {
+private fun MasterPayment(snapshot: AppSnapshot, catalog: MasterCatalog, save: (GirviRecord) -> String) {
     val activeGirvis = snapshot.girvis.filter { it.status == "ACTIVE" }
     val modes = MasterCatalogOperations.active(catalog, MasterKind.PAYMENT_MODE)
     var selectedGirviId by rememberSaveable { mutableStateOf(activeGirvis.firstOrNull()?.id) }
@@ -293,9 +336,8 @@ private fun MasterPayment(snapshot: AppSnapshot, catalog: MasterCatalog, save: (
                     require(monthCount in 0..1_200) { "Settlement months invalid" }
                     GirviSettlementUseCase.postPayment(girvi, monthCount, MoneyInput.rupeesToPaise(amount), if (interestFirst) PaymentAllocationMode.INTEREST_FIRST else PaymentAllocationMode.PRINCIPAL_FIRST, mode.name, note, snapshot.girvis.flatMap { it.payments }.map { it.receiptNumber })
                 }.onSuccess { updated ->
-                    save(updated)
+                    message = save(updated)
                     amount = ""; note = ""
-                    message = "Saved payment: ${updated.payments.last().receiptNumber} • ${selectedMode?.name}"
                 }.onFailure { message = it.message ?: "Payment save failed" }
             }, enabled = activeGirvis.isNotEmpty() && modes.isNotEmpty(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A))) { Text("Saved Mode Ke Saath Payment Receive Karein") }
         }
