@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -44,13 +45,14 @@ class ToolsActivity : FragmentActivity() {
         val storeState = EncryptedRecordStore(applicationContext).loadState()
         val recordsAvailable = storeState is RecordStoreLoadState.Ready
         val warning = (storeState as? RecordStoreLoadState.Corrupt)?.let {
-            "Local encrypted records verify nahi hue. Reports/backup blocked hain; pehle verified .gkb restore karein."
+            "Local encrypted records verify nahi hue. Reports/backup/settings blocked hain; pehle verified .gkb restore karein."
         }
         setContent {
             MaterialTheme {
                 ToolsScreen(
                     recordsAvailable = recordsAvailable,
                     warning = warning,
+                    openOwnerSettings = { startActivity(Intent(this, OwnerSettingsActivity::class.java)) },
                     openSafety = { startActivity(Intent(this, DataSafetyActivity::class.java)) },
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
@@ -67,6 +69,7 @@ class ToolsActivity : FragmentActivity() {
 private fun ToolsScreen(
     recordsAvailable: Boolean,
     warning: String?,
+    openOwnerSettings: () -> Unit,
     openSafety: () -> Unit,
     openReports: () -> Unit,
     openBackup: () -> Unit,
@@ -84,50 +87,30 @@ private fun ToolsScreen(
         Icon(Icons.Default.Lock, null, tint = navy)
         Spacer(Modifier.height(10.dp))
         Text("Girvi Khata Tools", fontSize = 29.sp, fontWeight = FontWeight.Bold, color = navy)
-        Text("Safety, reports, backup, restore aur PIN recovery", color = Color.Gray)
-        Spacer(Modifier.height(24.dp))
-        Card(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-        ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Settings, safety, reports, backup aur recovery", color = Color.Gray)
+        Spacer(Modifier.height(18.dp))
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 warning?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
-                Button(
-                    onClick = openSafety,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A)),
-                ) {
-                    Icon(Icons.Default.Security, null)
-                    Text("  Data Safety Status")
+                Button(onClick = openOwnerSettings, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = navy)) {
+                    Icon(Icons.Default.Settings, null); Text("  Owner Settings")
                 }
-                Button(
-                    onClick = openReports,
-                    enabled = recordsAvailable,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = purple),
-                ) {
-                    Icon(Icons.Default.Assessment, null)
-                    Text("  Reports & Customer Khata")
+                Button(onClick = openSafety, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A))) {
+                    Icon(Icons.Default.Security, null); Text("  Data Safety Status")
                 }
-                Button(
-                    onClick = openBackup,
-                    enabled = recordsAvailable,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = navy),
-                ) {
-                    Icon(Icons.Default.Backup, null)
-                    Text("  Encrypted Backup Banaye")
+                Button(onClick = openReports, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = purple)) {
+                    Icon(Icons.Default.Assessment, null); Text("  Reports & Customer Khata")
+                }
+                Button(onClick = openBackup, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = navy)) {
+                    Icon(Icons.Default.Backup, null); Text("  Encrypted Backup Banaye")
                 }
                 Button(onClick = openRestore, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B1E1E))) {
-                    Icon(Icons.Default.Restore, null)
-                    Text("  Backup Restore / Import")
+                    Icon(Icons.Default.Restore, null); Text("  Backup Restore / Import")
                 }
                 OutlinedButton(onClick = openPinRecovery, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.LockReset, null)
-                    Text("  Purana PIN Kaam Nahi Kar Raha")
+                    Icon(Icons.Default.LockReset, null); Text("  Purana PIN Kaam Nahi Kar Raha")
                 }
-                Text("Safety Status encrypted journal aur backup-due state dikhata hai. PIN recovery business records delete nahi karti.", color = Color.Gray, fontSize = 12.sp)
+                Text("Owner Settings se auto-lock, biometric aur category order/rename control hoga.", color = Color.Gray, fontSize = 12.sp)
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
