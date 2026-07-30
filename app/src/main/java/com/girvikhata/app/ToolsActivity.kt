@@ -59,6 +59,7 @@ class ToolsActivity : FragmentActivity() {
                     openOwnerSettings = { startActivity(Intent(this, OwnerSettingsActivity::class.java)) },
                     openMasters = { startActivity(Intent(this, MasterCatalogActivity::class.java)) },
                     openMasterWorkflow = { startActivity(Intent(this, MasterWorkflowActivity::class.java)) },
+                    openAdvancedWorkflow = { startActivity(Intent(this, AdvancedWorkflowActivity::class.java)) },
                     openSettlement = { startActivity(Intent(this, SettlementCenterActivity::class.java)) },
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
@@ -79,6 +80,7 @@ private fun ToolsScreen(
     openOwnerSettings: () -> Unit,
     openMasters: () -> Unit,
     openMasterWorkflow: () -> Unit,
+    openAdvancedWorkflow: () -> Unit,
     openSettlement: () -> Unit,
     openReports: () -> Unit,
     openBackup: () -> Unit,
@@ -114,8 +116,11 @@ private fun ToolsScreen(
                 Button(onClick = openMasters, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00695C))) {
                     Icon(Icons.Default.Tune, null); Text("  Business Masters")
                 }
-                Button(onClick = openMasterWorkflow, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D3A9B))) {
-                    Icon(Icons.Default.EditNote, null); Text("  Master-Assisted Girvi & Payment")
+                Button(onClick = openAdvancedWorkflow, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B1FA2))) {
+                    Icon(Icons.Default.EditNote, null); Text("  Advanced Multi-Item & Custom Split")
+                }
+                OutlinedButton(onClick = openMasterWorkflow, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.EditNote, null); Text("  Classic Master-Assisted Entry")
                 }
                 Button(onClick = openSettlement, enabled = recordsAvailable, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7A4D00))) {
                     Icon(Icons.Default.ReceiptLong, null); Text("  Settlement & Release Center")
@@ -132,7 +137,7 @@ private fun ToolsScreen(
                 OutlinedButton(onClick = openPinRecovery, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.LockReset, null); Text("  Purana PIN Kaam Nahi Kar Raha")
                 }
-                Text("New girvi/payment ke baad external verified backup banayein.", color = Color.Gray, fontSize = 12.sp)
+                Text("Critical entry ke baad external verified backup banayein.", color = Color.Gray, fontSize = 12.sp)
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
