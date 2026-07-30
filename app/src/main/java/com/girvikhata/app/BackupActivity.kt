@@ -43,6 +43,7 @@ import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.backup.ExternalBackupVerification
 import com.girvikhata.app.backup.PortableAppBundleCodec
 import com.girvikhata.app.backup.PortableBackupCrypto
+import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
@@ -110,7 +111,10 @@ class BackupActivity : FragmentActivity() {
                 passphrase = secret,
             )
             val decoded = PortableAppBundleCodec.decode(payload)
-            require(decoded.snapshot == snapshot) { "Business bundle self-check failed" }
+            require(
+                SnapshotPortableCodec.encode(decoded.snapshot)
+                    .contentEquals(SnapshotPortableCodec.encode(snapshot)),
+            ) { "Business bundle self-check failed" }
             require(decoded.masterCatalog == masters) { "Master bundle self-check failed" }
 
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
