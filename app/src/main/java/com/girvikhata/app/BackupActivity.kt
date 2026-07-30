@@ -1,7 +1,9 @@
 package com.girvikhata.app
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,8 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,70 +44,209 @@ import com.girvikhata.app.backup.PortableBackupCrypto
 import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedRecordStore
-import com.girvikhata.app.export.SecureShare
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
+import java.io.ByteArrayOutputStream
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class BackupActivity : FragmentActivity() {
+    private lateinit var security: SecurityPreferences
+    private lateinit var store: EncryptedRecordStore
+    private lateinit var journal: DataSafetyJournal
+
+    private var pendingBackup: PendingExternalBackup? = null
+    private var message by mutableStateOf("12+ characters, letters aur digits zaroori")
+    private var busy by mutableStateOf(false)
+
+    private val createDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri -> handleDocumentResult(uri) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val security = SecurityPreferences(applicationContext)
-        val store = EncryptedRecordStore(applicationContext)
-        val journal = DataSafetyJournal(applicationContext)
+        security = SecurityPreferences(applicationContext)
+        store = EncryptedRecordStore(applicationContext)
+        journal = DataSafetyJournal(applicationContext)
+
         setContent {
             MaterialTheme {
                 BackupRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
-                    createBackup = { passphrase ->
-                        val snapshot = store.load()
-                        val payload = SnapshotPortableCodec.encode(snapshot)
-                        val encrypted = PortableBackupCrypto.encrypt(payload, passphrase.toCharArray(), snapshot.schemaVersion)
-                        val verified = PortableBackupCrypto.decrypt(encrypted, passphrase.toCharArray())
-                        check(verified.payload.contentEquals(payload)) { "Backup package read-back verification failed" }
-                        check(verified.schemaVersion == snapshot.schemaVersion) { "Backup schema verification failed" }
-                        val packageSha = DataSafetyJournal.sha256(encrypted)
-                        val customerCount = snapshot.customers.size
-                        val girviCount = snapshot.girvis.size
-                        val ledgerCount = snapshot.girvis.sumOf { it.payments.size }
-                        journal.markVerifiedBackup(packageSha, customerCount, girviCount, ledgerCount)
-                        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-                        SecureShare.shareBinary(
-                            this,
-                            "girvi-khata-backup-$stamp.gkb",
-                            "application/octet-stream",
-                            encrypted,
-                            "Girvi Khata encrypted backup",
-                        )
-                        BackupResult(customerCount, girviCount, ledgerCount, packageSha)
-                    },
+                    message = message,
+                    busy = busy,
+                    requestExternalBackup = ::prepareAndChooseDestination,
                     close = ::finish,
                 )
             }
         }
     }
+
+    override fun onDestroy() {
+        pendingBackup?.clearSecret()
+        pendingBackup = null
+        super.onDestroy()
+    }
+
+    private fun prepareAndChooseDestination(passphrase: String) {
+        if (busy) return
+        busy = true
+        runCatching {
+            val secret = passphrase.toCharArray()
+            val snapshot = store.load()
+            val payload = SnapshotPortableCodec.encode(snapshot)
+            val encrypted = PortableBackupCrypto.encrypt(payload, secret, snapshot.schemaVersion)
+            val internalReadBack = PortableBackupCrypto.decrypt(encrypted, secret)
+            check(internalReadBack.payload.contentEquals(payload)) { "Backup package internal read-back failed" }
+            check(internalReadBack.schemaVersion == snapshot.schemaVersion) { "Backup schema verification failed" }
+
+            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+            pendingBackup?.clearSecret()
+            pendingBackup = PendingExternalBackup(
+                fileName = "girvi-khata-backup-$stamp.gkb",
+                encryptedBytes = encrypted,
+                originalPayload = payload,
+                schemaVersion = snapshot.schemaVersion,
+                passphrase = secret,
+                customerCount = snapshot.customers.size,
+                girviCount = snapshot.girvis.size,
+                ledgerCount = snapshot.girvis.sumOf { it.payments.size },
+            )
+            message = "Files/Drive location choose karein. Save ke baad app wahi file wapas read karke verify karegi."
+            createDocument.launch(pendingBackup!!.fileName)
+        }.onFailure {
+            pendingBackup?.clearSecret()
+            pendingBackup = null
+            message = it.message ?: "Backup prepare nahi hua"
+        }
+        busy = false
+    }
+
+    private fun handleDocumentResult(uri: Uri?) {
+        val pending = pendingBackup
+        if (uri == null || pending == null) {
+            pending?.clearSecret()
+            pendingBackup = null
+            message = "Backup save cancel hua. Safety Status reset nahi hua."
+            busy = false
+            return
+        }
+
+        busy = true
+        runCatching {
+            writeDocument(uri, pending.encryptedBytes)
+            val writtenBytes = readDocument(uri)
+            check(writtenBytes.contentEquals(pending.encryptedBytes)) { "Saved file byte verification failed" }
+
+            val externalReadBack = PortableBackupCrypto.decrypt(writtenBytes, pending.passphrase)
+            check(externalReadBack.schemaVersion == pending.schemaVersion) { "Saved backup schema mismatch" }
+            check(externalReadBack.payload.contentEquals(pending.originalPayload)) { "Saved backup payload mismatch" }
+
+            val sha = DataSafetyJournal.sha256(writtenBytes)
+            journal.markVerifiedBackup(
+                sha,
+                pending.customerCount,
+                pending.girviCount,
+                pending.ledgerCount,
+            )
+            BackupResult(
+                pending.customerCount,
+                pending.girviCount,
+                pending.ledgerCount,
+                sha,
+            )
+        }.onSuccess { result ->
+            message = "External backup verified: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • SHA ${result.sha256.take(12)}…"
+        }.onFailure {
+            message = "File save/read-back verify nahi hua: ${it.message ?: "unknown error"}. Backup due status unchanged hai."
+        }
+        pending.clearSecret()
+        pendingBackup = null
+        busy = false
+    }
+
+    private fun writeDocument(uri: Uri, bytes: ByteArray) {
+        val descriptor = contentResolver.openFileDescriptor(uri, "rwt")
+            ?: contentResolver.openFileDescriptor(uri, "w")
+            ?: error("Selected file open nahi hui")
+        descriptor.use { pfd ->
+            FileOutputStream(pfd.fileDescriptor).use { output ->
+                output.write(bytes)
+                output.flush()
+                pfd.fileDescriptor.sync()
+            }
+        }
+    }
+
+    private fun readDocument(uri: Uri): ByteArray {
+        val input = contentResolver.openInputStream(uri) ?: error("Saved file read nahi hui")
+        return input.use { stream ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= MAX_BACKUP_BYTES) { "Saved backup file size invalid" }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray().also { require(it.isNotEmpty()) { "Saved backup empty hai" } }
+        }
+    }
+
+    private data class PendingExternalBackup(
+        val fileName: String,
+        val encryptedBytes: ByteArray,
+        val originalPayload: ByteArray,
+        val schemaVersion: Int,
+        val passphrase: CharArray,
+        val customerCount: Int,
+        val girviCount: Int,
+        val ledgerCount: Int,
+    ) {
+        fun clearSecret() = passphrase.fill('\u0000')
+    }
+
+    private companion object {
+        const val MAX_BACKUP_BYTES = 128 * 1024 * 1024
+    }
 }
 
-private data class BackupResult(val customers: Int, val girvis: Int, val ledgerEntries: Int, val sha256: String)
+private data class BackupResult(
+    val customers: Int,
+    val girvis: Int,
+    val ledgerEntries: Int,
+    val sha256: String,
+)
 
 @Composable
 private fun BackupRoot(
     verifyPin: (String) -> PinVerificationResult,
-    createBackup: (String) -> BackupResult,
+    message: String,
+    busy: Boolean,
+    requestExternalBackup: (String) -> Unit,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
-    if (!unlocked) BackupPinScreen(verifyPin, { unlocked = true }, close)
-    else BackupCreateScreen(createBackup, close)
+    if (!unlocked) {
+        BackupPinScreen(verifyPin, { unlocked = true }, close)
+    } else {
+        BackupCreateScreen(message, busy, requestExternalBackup, close)
+    }
 }
 
 @Composable
-private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, success: () -> Unit, close: () -> Unit) {
+private fun BackupPinScreen(
+    verifyPin: (String) -> PinVerificationResult,
+    success: () -> Unit,
+    close: () -> Unit,
+) {
     var pin by rememberSaveable { mutableStateOf("") }
-    var message by rememberSaveable { mutableStateOf("Backup ke liye PIN verify karein") }
-    BackupPanel("Encrypted Backup", message) {
+    var pinMessage by rememberSaveable { mutableStateOf("Backup ke liye PIN verify karein") }
+    BackupPanel("Encrypted Backup", pinMessage) {
         OutlinedTextField(
             pin,
             { pin = it.filter(Char::isDigit).take(6) },
@@ -120,9 +260,9 @@ private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, succes
             onClick = {
                 when (val result = verifyPin(pin)) {
                     PinVerificationResult.Success -> success()
-                    PinVerificationResult.NotConfigured -> message = "Main app mein pehle PIN setup karein"
-                    is PinVerificationResult.Locked -> message = "Security lock active hai"
-                    is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
+                    PinVerificationResult.NotConfigured -> pinMessage = "Main app mein pehle PIN setup karein"
+                    is PinVerificationResult.Locked -> pinMessage = "Security lock active hai"
+                    is PinVerificationResult.Failure -> pinMessage = "Galat PIN. Attempts: ${result.attempts}"
                 }
                 pin = ""
             },
@@ -135,41 +275,61 @@ private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, succes
 }
 
 @Composable
-private fun BackupCreateScreen(createBackup: (String) -> BackupResult, close: () -> Unit) {
+private fun BackupCreateScreen(
+    message: String,
+    busy: Boolean,
+    requestExternalBackup: (String) -> Unit,
+    close: () -> Unit,
+) {
     var passphrase by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf("") }
-    var message by rememberSaveable { mutableStateOf("12+ characters, letters aur digits zaroori") }
-    var busy by remember { mutableStateOf(false) }
-    BackupPanel("Portable Encrypted Backup", message) {
-        Text("Package encrypt hone ke baad app usko decrypt/read-back karke verify karegi. Share sheet mein Files/Drive choose karke external copy zaroor save karein.", color = Color.Gray)
-        OutlinedTextField(passphrase, { passphrase = it }, label = { Text("Recovery passphrase") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(confirm, { confirm = it }, label = { Text("Passphrase dobara") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+    var localError by rememberSaveable { mutableStateOf<String?>(null) }
+
+    BackupPanel("Portable Encrypted Backup", localError ?: message) {
+        Text(
+            "App direct Files/Drive location par .gkb save karegi, wahi bytes wapas read karegi aur decrypt/schema verify hone ke baad hi backup successful maanegi.",
+            color = Color.Gray,
+        )
+        OutlinedTextField(
+            passphrase,
+            { passphrase = it },
+            label = { Text("Recovery passphrase") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            confirm,
+            { confirm = it },
+            label = { Text("Passphrase dobara") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Button(
             onClick = {
                 when {
-                    passphrase != confirm -> message = "Dono passphrase match nahi kar rahe"
+                    passphrase != confirm -> localError = "Dono passphrase match nahi kar rahe"
                     else -> {
-                        busy = true
-                        runCatching { createBackup(passphrase) }
-                            .onSuccess { result ->
-                                message = "Verified package ready: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • SHA ${result.sha256.take(12)}…"
-                                passphrase = ""; confirm = ""
-                            }
-                            .onFailure { message = it.message ?: "Backup create nahi hua" }
-                        busy = false
+                        localError = null
+                        requestExternalBackup(passphrase)
+                        passphrase = ""
+                        confirm = ""
                     }
                 }
             },
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF171752)),
-        ) { Text(if (busy) "Encrypt & verify ho raha hai..." else "Backup Verify Karke Share") }
-        OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+        ) { Text(if (busy) "Backup verify ho raha hai..." else "Location Chune Aur Verified Backup Save Karein") }
+        OutlinedButton(onClick = close, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
 
 @Composable
-private fun BackupPanel(title: String, subtitle: String, content: @Composable () -> Unit) {
+private fun BackupPanel(
+    title: String,
+    subtitle: String,
+    content: @Composable () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().background(Color(0xFFF6F7FB)).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -180,7 +340,11 @@ private fun BackupPanel(title: String, subtitle: String, content: @Composable ()
         Text(title, fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color(0xFF171752))
         Text(subtitle, color = Color.Gray)
         Spacer(Modifier.height(18.dp))
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+        ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
         }
     }
