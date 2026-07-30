@@ -1,5 +1,8 @@
 package com.girvikhata.app.data
 
+import com.girvikhata.app.domain.MasterCatalog
+import com.girvikhata.app.domain.MasterEntry
+import com.girvikhata.app.domain.MasterKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
