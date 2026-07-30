@@ -36,14 +36,14 @@ class PortableAppBundleCodecTest {
     @Test fun newBundleRoundTripsBusinessAndMasters() {
         val masters = MasterCatalog(listOf(MasterEntry(id = "m1", kind = MasterKind.LOCKER, name = "Locker A")))
         val decoded = PortableAppBundleCodec.decode(PortableAppBundleCodec.encode(snapshot, masters))
-        assertEquals(snapshot, decoded.snapshot)
+        assertCanonicalSnapshotEquals(snapshot, decoded.snapshot)
         assertEquals(masters, decoded.masterCatalog)
         assertTrue(decoded.containsPortableMasters)
     }
 
     @Test fun legacySnapshotOnlyPayloadRemainsReadable() {
         val decoded = PortableAppBundleCodec.decode(SnapshotPortableCodec.encode(snapshot))
-        assertEquals(snapshot, decoded.snapshot)
+        assertCanonicalSnapshotEquals(snapshot, decoded.snapshot)
         assertFalse(decoded.containsPortableMasters)
         assertTrue(decoded.masterCatalog.entries.isNotEmpty())
     }
@@ -56,5 +56,9 @@ class PortableAppBundleCodecTest {
     @Test fun duplicateMasterIdsAreRejected() {
         val json = """{"version":1,"entries":[{"id":"x","kind":"UNIT","name":"gram"},{"id":"x","kind":"UNIT","name":"kg"}]}"""
         assertThrows(IllegalArgumentException::class.java) { MasterCatalogPortableCodec.decode(json.toByteArray()) }
+    }
+
+    private fun assertCanonicalSnapshotEquals(expected: AppSnapshot, actual: AppSnapshot) {
+        assertTrue(SnapshotPortableCodec.encode(expected).contentEquals(SnapshotPortableCodec.encode(actual)))
     }
 }
