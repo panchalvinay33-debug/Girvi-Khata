@@ -75,21 +75,11 @@ class MasterWorkflowActivity : FragmentActivity() {
                     loadSnapshot = records::load,
                     loadCatalog = masters::load,
                     commitGirvi = { screenSnapshot, customer, girvi ->
-                        var expected = RelationalShadowFingerprint.sha256(screenSnapshot)
-                        if (screenSnapshot.customers.none { it.id == customer.id }) {
-                            expected = coordinator.execute(
-                                VerifiedBusinessWriteRequest(
-                                    expectedFingerprint = expected,
-                                    mutation = VerifiedBusinessMutation.UpsertCustomer(customer),
-                                    title = "Customer added before girvi",
-                                ),
-                            ).afterFingerprint
-                        }
                         val result = coordinator.execute(
                             VerifiedBusinessWriteRequest(
-                                expectedFingerprint = expected,
-                                mutation = VerifiedBusinessMutation.UpsertGirvi(girvi),
-                                title = "Girvi ${girvi.girviNumber} created",
+                                expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
+                                mutation = VerifiedBusinessMutation.CreateGirviWithCustomer(customer, girvi),
+                                title = "Girvi ${girvi.girviNumber} created atomically",
                             ),
                         )
                         "Saved: ${girvi.girviNumber} • TX ${result.transactionId.take(8)}"
