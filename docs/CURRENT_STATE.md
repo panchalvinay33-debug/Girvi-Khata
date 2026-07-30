@@ -20,17 +20,17 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 
 ## Latest testing build
 
-- Build: `v0.12.0-alpha.12`
-- Version code/name: `12` / `0.12.0-testing`
+- Build: `v0.13.0-alpha.13`
+- Version code/name: `13` / `0.13.0-testing`
 - Package: `com.girvikhata.app.testing`
-- Source commit: `1c028cfd8e1be02509240584e49dcf0317498df8`
-- Android workflow: `30512547105`
-- Security Guard: `30512547107`
-- Artifact ID: `8747719885`
-- APK size: `20,075,034 bytes`
-- APK SHA-256: `499349cb8aa4e681a6312e2ac82c4d15485d89799f7bd58354866c746eb0c27b`
+- Source commit: `e3a745c1e376f08f5d929fc8f42502dc96db70e9`
+- Android workflow: `30514393001`
+- Security Guard: `30514393005`
+- Artifact ID: `8748366094`
+- APK size: `20,091,418 bytes`
+- APK SHA-256: `7f6d42226dfe973f068f4027749b4a112fec823b8d6a31131ee613b13dda92ca`
 - CI status: unit tests, Compose/Android compilation, stable testing signing, artifact upload, Security Guard, ZIP integrity and APK integrity passed.
-- Owner status: Alpha 10 navigation/privacy, Alpha 11 local-store recovery and Alpha 12 safety-journal workflows require physical-device confirmation.
+- Owner status: Alpha 10 navigation/privacy, Alpha 11 local-store recovery, Alpha 12 safety journal and Alpha 13 external document verification require physical-device confirmation.
 
 ## Current visible application scope
 
@@ -52,12 +52,12 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 ### Internal Tools
 
 - PIN-protected Data Safety Status dashboard
-- Encrypted hash-chained activity journal, backup-due state and latest verified package metadata
+- Encrypted hash-chained activity journal, backup-due state and latest externally verified package metadata
 - Reports and customer khata
 - Active/released/all filters
 - Today, 7-day, 30-day, all-time and exact custom From/To collection ranges
 - CSV, receipt and customer-statement sharing
-- Portable encrypted `.gkb` backup creation with local decrypt/read-back verification
+- Portable encrypted `.gkb` backup creation with direct Files/Drive document save and same-URI read-back verification
 - Verified `.gkb` restore/import, including replacement of a quarantined damaged primary
 - Data-preserving PIN recovery with a journal event
 - During local corruption, Reports and new-backup creation are blocked while Restore and PIN Recovery remain available
@@ -73,9 +73,11 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - If no valid local copy remains, the app blocks Dashboard and requires verified `.gkb` restore.
 - A separate AES-256-GCM encrypted journal stores up to 500 SHA-256 hash-chained safety events.
 - Android `FileObserver` records aggregate committed business-store changes and deduplicates repeated callbacks using encrypted-file SHA/timing.
-- Backup becomes due after no verified package, five committed changes, or seven elapsed days.
+- Backup becomes due after no verified external package, five committed changes, or seven elapsed days.
 - Portable backups use AES-256-GCM with PBKDF2-HMAC-SHA256 at 310,000 iterations, random salt/nonce and authenticated tamper detection.
-- Generated backup packages are decrypted/read back in memory before their SHA/count metadata is recorded and Android share opens.
+- Alpha 13 writes the package through Android `CreateDocument`, reads the same URI back, requires exact byte equality, decrypts the read-back package and verifies schema plus complete payload before recording SHA/count metadata.
+- Picker cancellation or any provider/write/read/decrypt/schema/payload failure leaves backup-due state unchanged.
+- Recovery phrase characters are not persisted and are overwritten after the pending operation ends.
 - Restore validates schema, IDs, customer/girvi links, payment reconciliation, status values, timestamps, counts and package integrity before replacement.
 - Android automatic backup/device transfer remains disabled.
 - A central lifecycle guard applies Android `FLAG_SECURE` to every activity window where supported.
@@ -84,22 +86,23 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 
 ## Important limitations
 
-- Alpha 10 privacy behavior, Alpha 11 fault recovery and Alpha 12 observer/journal behavior require owner physical-device confirmation.
-- Alpha 12 committed business events are aggregate state-change records rather than exact field-level transaction labels.
-- Local package verification does not prove the user completed an external Files/Drive save after Android share opened.
+- Alpha 10 privacy behavior, Alpha 11 fault recovery, Alpha 12 observer/journal behavior and Alpha 13 provider compatibility require owner physical-device confirmation.
+- Committed business events are aggregate state-change records rather than exact field-level transaction labels.
+- Same-URI read-back proves the Android document provider returned the exact bytes at verification time, but cannot prove later remote-cloud synchronization or cross-device retention.
+- Process death while the document picker is open cancels the in-memory pending backup operation; the phrase is deliberately not persisted.
 - Tools currently opens as an internal activity through a floating button rather than a native bottom-navigation page.
 - Persistence is still an encrypted snapshot file, not the final transactional encrypted relational database.
 - Local safety/quarantine/journal files are device-bound and disappear on uninstall or device loss; an external `.gkb` remains mandatory.
-- Google Drive automatic upload, account authorization, read-back verification, retention, scheduling and cloud restore discovery are not implemented.
+- Google Drive API authorization, automatic upload/read-back verification, retention, scheduling and cloud restore discovery are not implemented.
 - PDF/thermal printing, media vault, final receipt templates and production signing are pending.
 
 ## Next priority order
 
-1. Owner test Alpha 12 as an in-place update, including Alpha 10/11 regression checks.
-2. Confirm one committed dummy change creates one journal event and backup due/reset behavior is correct.
-3. Fix any physical-device regression before advancing the approved baseline.
+1. Owner test Alpha 13 as an in-place update, including Alpha 10/11/12 regression checks.
+2. Confirm cancellation does not reset backup status and phone Files plus Google Drive document providers pass same-URI read-back verification.
+3. Fix any physical-device/provider regression before advancing the approved baseline.
 4. Replace the snapshot store with a transaction-safe encrypted relational database and exact transaction audit events.
-5. Make the repository private, then implement owner-authorized Google Drive app-data backup with upload/read-back verification and retention.
+5. Make the repository private, then implement owner-authorized Google Drive app-data backup with API upload/read-back verification, retention and restore discovery.
 6. Add production receipt/PDF/thermal printing and media-vault milestones after storage migration.
 
 ## Permanent delivery rule
