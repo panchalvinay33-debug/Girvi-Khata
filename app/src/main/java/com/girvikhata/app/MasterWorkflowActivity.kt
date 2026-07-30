@@ -9,9 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -59,15 +58,11 @@ import java.util.Locale
 import kotlin.math.roundToLong
 
 class MasterWorkflowActivity : FragmentActivity() {
-    private lateinit var records: EncryptedRecordStore
-    private lateinit var masters: EncryptedMasterCatalogStore
-    private lateinit var security: SecurityPreferences
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        records = EncryptedRecordStore(applicationContext)
-        masters = EncryptedMasterCatalogStore(applicationContext)
-        security = SecurityPreferences(applicationContext)
+        val records = EncryptedRecordStore(applicationContext)
+        val masters = EncryptedMasterCatalogStore(applicationContext)
+        val security = SecurityPreferences(applicationContext)
         setContent {
             MaterialTheme {
                 MasterWorkflowRoot(
@@ -100,6 +95,7 @@ private fun MasterWorkflowRoot(
     var snapshot by remember { mutableStateOf(loadSnapshot()) }
     val catalog = remember { loadCatalog() }
     var tab by rememberSaveable { mutableStateOf(WorkflowTab.NEW_GIRVI) }
+
     Column(
         Modifier.fillMaxSize().background(Color(0xFFF6F7FB)).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -119,25 +115,17 @@ private fun MasterWorkflowRoot(
             ) { Text("Payment") }
         }
         when (tab) {
-            WorkflowTab.NEW_GIRVI -> MasterNewGirvi(
-                snapshot = snapshot,
-                catalog = catalog,
-                save = { customer, girvi ->
-                    val customers = if (snapshot.customers.any { it.id == customer.id }) snapshot.customers else snapshot.customers + customer
-                    val next = snapshot.copy(customers = customers, girvis = snapshot.girvis + girvi)
-                    saveSnapshot(next)
-                    snapshot = next
-                },
-            )
-            WorkflowTab.RECEIVE_PAYMENT -> MasterPayment(
-                snapshot = snapshot,
-                catalog = catalog,
-                save = { updated ->
-                    val next = snapshot.copy(girvis = snapshot.girvis.map { if (it.id == updated.id) updated else it })
-                    saveSnapshot(next)
-                    snapshot = next
-                },
-            )
+            WorkflowTab.NEW_GIRVI -> MasterNewGirvi(snapshot, catalog) { customer, girvi ->
+                val customers = if (snapshot.customers.any { it.id == customer.id }) snapshot.customers else snapshot.customers + customer
+                val next = snapshot.copy(customers = customers, girvis = snapshot.girvis + girvi)
+                saveSnapshot(next)
+                snapshot = next
+            }
+            WorkflowTab.RECEIVE_PAYMENT -> MasterPayment(snapshot, catalog) { updated ->
+                val next = snapshot.copy(girvis = snapshot.girvis.map { if (it.id == updated.id) updated else it })
+                saveSnapshot(next)
+                snapshot = next
+            }
         }
         OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
@@ -157,8 +145,8 @@ private fun WorkflowPinScreen(verifyPin: (String) -> PinVerificationResult, succ
         Card(Modifier.fillMaxWidth().padding(top = 18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it.filter(Char::isDigit).take(6) },
+                    pin,
+                    { pin = it.filter(Char::isDigit).take(6) },
                     label = { Text("6-digit PIN") },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -215,88 +203,83 @@ private fun MasterNewGirvi(snapshot: AppSnapshot, catalog: MasterCatalog, save: 
     val selectedLocker = lockers.firstOrNull { it.id == selectedLockerId }
     val relevantItems = items.filter { it.categoryName.isBlank() || it.categoryName.equals(category, true) }
 
-    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(customerName, { value -> customerName = value; customerId = null }, label = { Text("Customer name / search") }, modifier = Modifier.fillMaxWidth())
-        CustomerMatcher.search(snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) }, customerName).take(4).forEach { match ->
-            TextButton(onClick = { customerName = match.name; customerId = match.id; mobile = match.mobile; address = match.address }) {
-                Text("${match.name} • ${match.mobile} • ${match.address}")
+    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            OutlinedTextField(customerName, { customerName = it; customerId = null }, label = { Text("Customer name / search") }, modifier = Modifier.fillMaxWidth())
+        }
+        if (customerName.isNotBlank() && customerId == null) {
+            val matches = CustomerMatcher.search(snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) }, customerName).take(4)
+            items(matches.size) { index ->
+                val match = matches[index]
+                TextButton(onClick = { customerName = match.name; customerId = match.id; mobile = match.mobile; address = match.address }) {
+                    Text("${match.name} • ${match.mobile} • ${match.address}")
+                }
             }
         }
-        OutlinedTextField(mobile, { mobile = it.filter(Char::isDigit).take(10) }, label = { Text("Mobile") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
-
-        Text("Category", fontWeight = FontWeight.Bold)
-        ChoiceRow(categories, category) { category = it; selectedItemId = null }
-        Text("Saved Item", fontWeight = FontWeight.Bold)
-        MasterChoiceRow(relevantItems, selectedItemId) { selectedItemId = it }
-        OutlinedTextField(manualItem, { manualItem = it }, label = { Text("Manual item fallback") }, modifier = Modifier.fillMaxWidth())
-
-        Text("Unit", fontWeight = FontWeight.Bold)
-        MasterChoiceRow(units, selectedUnitId) { selectedUnitId = it }
-        OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit).take(4) }, label = { Text("Quantity") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(gross, { gross = decimalInput(it) }, label = { Text("Gross weight (${selectedUnit?.name ?: "unit"})") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(deduction, { deduction = decimalInput(it) }, label = { Text("Deduction") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-
-        Text("Interest Plan", fontWeight = FontWeight.Bold)
-        MasterChoiceRow(plans, selectedPlanId) { selectedPlanId = it }
-        if (selectedPlan == null) OutlinedTextField(manualRate, { manualRate = decimalInput(it) }, label = { Text("Manual monthly rate %") }, modifier = Modifier.fillMaxWidth())
-
-        Text("Locker / Storage", fontWeight = FontWeight.Bold)
-        MasterChoiceRow(lockers, selectedLockerId) { selectedLockerId = it }
-        OutlinedTextField(principal, { principal = decimalInput(it) }, label = { Text("Principal ₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(note, { note = it }, label = { Text("Description / note") }, modifier = Modifier.fillMaxWidth())
-        message?.let { Text(it, color = if (it.startsWith("Saved")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) }
-        Button(
-            onClick = {
-                runCatching {
-                    val cleanName = customerName.trim()
-                    require(cleanName.length >= 2) { "Customer required" }
-                    require(category.isNotBlank()) { "Active category required" }
-                    val itemName = selectedItem?.name ?: manualItem.trim()
-                    require(itemName.isNotBlank()) { "Saved ya manual item required" }
-                    val qty = quantity.toIntOrNull() ?: error("Valid quantity required")
-                    require(qty > 0) { "Quantity positive hona chahiye" }
-                    val amount = principal.toDoubleOrNull() ?: error("Valid principal required")
-                    require(amount > 0) { "Principal positive hona chahiye" }
-                    val rateBp = selectedPlan?.rateBasisPoints ?: ((manualRate.toDoubleOrNull() ?: error("Valid rate required")) * 100).roundToLong().toInt()
-                    require(rateBp in 0..100_000) { "Interest rate invalid" }
-                    val existing = customerId?.let { id -> snapshot.customers.firstOrNull { it.id == id } }
-                        ?: CustomerMatcher.findBestMatch(snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) }, cleanName, mobile)
-                            ?.let { match -> snapshot.customers.first { it.id == match.id } }
-                    val customer = existing ?: CustomerRecord(name = cleanName, mobile = mobile, address = address.trim())
-                    val metadata = buildList {
-                        add("Unit: ${selectedUnit?.name ?: "manual"}")
-                        add("Locker: ${selectedLocker?.name ?: "not selected"}")
-                        add("Plan: ${selectedPlan?.name ?: "manual"}")
-                        if (note.isNotBlank()) add(note.trim())
-                    }.joinToString(" • ")
-                    val item = GirviItemRecord(
-                        categoryName = category,
-                        itemName = itemName,
-                        quantity = qty,
-                        grossWeightGrams = gross,
-                        deductionWeightGrams = deduction,
-                        description = metadata,
-                    )
-                    val girvi = GirviRecord(
-                        girviNumber = GirviSequence.nextNumber(snapshot.girvis.map { it.girviNumber }),
-                        customerId = customer.id,
-                        customerName = customer.name,
-                        categoryName = category,
-                        itemName = itemName,
-                        weightGrams = gross,
-                        principalPaise = (amount * 100).roundToLong(),
-                        monthlyRateBasisPoints = rateBp,
-                        items = listOf(item),
-                    )
-                    save(customer, girvi)
-                    customerName = ""; customerId = null; mobile = ""; address = ""; manualItem = ""; principal = ""; gross = ""; deduction = ""; note = ""
-                    message = "Saved: ${girvi.girviNumber} • verified encrypted store"
-                }.onFailure { message = it.message ?: "Girvi save failed" }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5146B8)),
-        ) { Text("Master Choices Ke Saath Girvi Save Karein") }
+        item { OutlinedTextField(mobile, { mobile = it.filter(Char::isDigit).take(10) }, label = { Text("Mobile") }, modifier = Modifier.fillMaxWidth()) }
+        item { OutlinedTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth()) }
+        item { Text("Category", fontWeight = FontWeight.Bold); ChoiceRow(categories, category) { category = it; selectedItemId = null } }
+        item { Text("Saved Item", fontWeight = FontWeight.Bold); MasterChoiceRow(relevantItems, selectedItemId) { selectedItemId = it } }
+        item { OutlinedTextField(manualItem, { manualItem = it }, label = { Text("Manual item fallback") }, modifier = Modifier.fillMaxWidth()) }
+        item { Text("Unit", fontWeight = FontWeight.Bold); MasterChoiceRow(units, selectedUnitId) { selectedUnitId = it } }
+        item { OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit).take(4) }, label = { Text("Quantity") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()) }
+        item { OutlinedTextField(gross, { gross = decimalInput(it) }, label = { Text("Gross weight (${selectedUnit?.name ?: "unit"})") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
+        item { OutlinedTextField(deduction, { deduction = decimalInput(it) }, label = { Text("Deduction") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
+        item { Text("Interest Plan", fontWeight = FontWeight.Bold); MasterChoiceRow(plans, selectedPlanId) { selectedPlanId = it } }
+        if (selectedPlan == null) item { OutlinedTextField(manualRate, { manualRate = decimalInput(it) }, label = { Text("Manual monthly rate %") }, modifier = Modifier.fillMaxWidth()) }
+        item { Text("Locker / Storage", fontWeight = FontWeight.Bold); MasterChoiceRow(lockers, selectedLockerId) { selectedLockerId = it } }
+        item { OutlinedTextField(principal, { principal = decimalInput(it) }, label = { Text("Principal ₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
+        item { OutlinedTextField(note, { note = it }, label = { Text("Description / note") }, modifier = Modifier.fillMaxWidth()) }
+        item { message?.let { Text(it, color = if (it.startsWith("Saved")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) } }
+        item {
+            Button(
+                onClick = {
+                    runCatching {
+                        val cleanName = customerName.trim()
+                        require(cleanName.length >= 2) { "Customer required" }
+                        require(category.isNotBlank()) { "Active category required" }
+                        val itemName = selectedItem?.name ?: manualItem.trim()
+                        require(itemName.isNotBlank()) { "Saved ya manual item required" }
+                        val qty = quantity.toIntOrNull() ?: error("Valid quantity required")
+                        require(qty > 0) { "Quantity positive hona chahiye" }
+                        val grossValue = gross.toDoubleOrNull() ?: 0.0
+                        val deductionValue = deduction.toDoubleOrNull() ?: 0.0
+                        require(grossValue >= 0 && deductionValue >= 0 && deductionValue <= grossValue) { "Weight/deduction invalid" }
+                        val amount = principal.toDoubleOrNull() ?: error("Valid principal required")
+                        require(amount > 0) { "Principal positive hona chahiye" }
+                        val rateBp = selectedPlan?.rateBasisPoints ?: ((manualRate.toDoubleOrNull() ?: error("Valid rate required")) * 100).roundToLong().toInt()
+                        require(rateBp in 0..100_000) { "Interest rate invalid" }
+                        val existing = customerId?.let { id -> snapshot.customers.firstOrNull { it.id == id } }
+                            ?: CustomerMatcher.findBestMatch(snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) }, cleanName, mobile)
+                                ?.let { match -> snapshot.customers.first { it.id == match.id } }
+                        val customer = existing ?: CustomerRecord(name = cleanName, mobile = mobile, address = address.trim())
+                        val metadata = buildList {
+                            add("Unit: ${selectedUnit?.name ?: "manual"}")
+                            add("Locker: ${selectedLocker?.name ?: "not selected"}")
+                            add("Plan: ${selectedPlan?.name ?: "manual"}")
+                            if (note.isNotBlank()) add(note.trim())
+                        }.joinToString(" • ")
+                        val item = GirviItemRecord(categoryName = category, itemName = itemName, quantity = qty, grossWeightGrams = gross, deductionWeightGrams = deduction, description = metadata)
+                        val girvi = GirviRecord(
+                            girviNumber = GirviSequence.nextNumber(snapshot.girvis.map { it.girviNumber }),
+                            customerId = customer.id,
+                            customerName = customer.name,
+                            categoryName = category,
+                            itemName = itemName,
+                            weightGrams = gross,
+                            principalPaise = (amount * 100).roundToLong(),
+                            monthlyRateBasisPoints = rateBp,
+                            items = listOf(item),
+                        )
+                        save(customer, girvi)
+                        customerName = ""; customerId = null; mobile = ""; address = ""; manualItem = ""; principal = ""; gross = ""; deduction = ""; note = ""
+                        message = "Saved: ${girvi.girviNumber} • verified encrypted store"
+                    }.onFailure { message = it.message ?: "Girvi save failed" }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5146B8)),
+            ) { Text("Master Choices Ke Saath Girvi Save Karein") }
+        }
     }
 }
 
@@ -314,59 +297,61 @@ private fun MasterPayment(snapshot: AppSnapshot, catalog: MasterCatalog, save: (
     val selectedGirvi = activeGirvis.firstOrNull { it.id == selectedGirviId }
     val selectedMode = modes.firstOrNull { it.id == selectedModeId }
 
-    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("Active Girvi", fontWeight = FontWeight.Bold)
-        activeGirvis.forEach { girvi ->
+    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        item { Text("Active Girvi", fontWeight = FontWeight.Bold) }
+        items(activeGirvis.size) { index ->
+            val girvi = activeGirvis[index]
             TextButton(onClick = { selectedGirviId = girvi.id }) {
                 Text(if (selectedGirviId == girvi.id) "✓ ${girvi.girviNumber} • ${girvi.customerName}" else "${girvi.girviNumber} • ${girvi.customerName}")
             }
         }
-        OutlinedTextField(months, { months = it.filter(Char::isDigit).take(3) }, label = { Text("Settlement months") }, modifier = Modifier.fillMaxWidth())
-        selectedGirvi?.let { girvi ->
-            val view = runCatching { GirviSettlementUseCase.settlementView(girvi, months.toIntOrNull() ?: 0) }.getOrNull()
-            view?.let { Text("Due: Principal ${moneyText(it.principalDuePaise)} • Interest ${moneyText(it.interestDuePaise)} • Total ${moneyText(it.totalDuePaise)}") }
+        item { OutlinedTextField(months, { months = it.filter(Char::isDigit).take(3) }, label = { Text("Settlement months") }, modifier = Modifier.fillMaxWidth()) }
+        item {
+            selectedGirvi?.let { girvi ->
+                runCatching { GirviSettlementUseCase.settlementView(girvi, months.toIntOrNull() ?: 0) }.getOrNull()?.let {
+                    Text("Due: Principal ${moneyText(it.principalDuePaise)} • Interest ${moneyText(it.interestDuePaise)} • Total ${moneyText(it.totalDuePaise)}")
+                }
+            }
         }
-        Text("Saved Payment Mode", fontWeight = FontWeight.Bold)
-        MasterChoiceRow(modes, selectedModeId) { selectedModeId = it }
-        OutlinedTextField(amount, { amount = decimalInput(it) }, label = { Text("Payment amount ₹") }, modifier = Modifier.fillMaxWidth())
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = interestFirst, onCheckedChange = { interestFirst = it })
-            Text(if (interestFirst) "Interest first allocation" else "Principal first allocation")
+        item { Text("Saved Payment Mode", fontWeight = FontWeight.Bold); MasterChoiceRow(modes, selectedModeId) { selectedModeId = it } }
+        item { OutlinedTextField(amount, { amount = decimalInput(it) }, label = { Text("Payment amount ₹") }, modifier = Modifier.fillMaxWidth()) }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(interestFirst, { interestFirst = it }); Text(if (interestFirst) "Interest first allocation" else "Principal first allocation") } }
+        item { OutlinedTextField(note, { note = it }, label = { Text("Payment note") }, modifier = Modifier.fillMaxWidth()) }
+        item { message?.let { Text(it, color = if (it.startsWith("Saved")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) } }
+        item {
+            Button(
+                onClick = {
+                    runCatching {
+                        val girvi = requireNotNull(selectedGirvi) { "Active girvi select karein" }
+                        val mode = requireNotNull(selectedMode) { "Active payment mode select karein" }
+                        val monthCount = months.toIntOrNull() ?: error("Valid months required")
+                        require(monthCount in 0..1_200) { "Settlement months invalid" }
+                        GirviSettlementUseCase.postPayment(
+                            girvi = girvi,
+                            months = monthCount,
+                            amountPaise = MoneyInput.rupeesToPaise(amount),
+                            allocationMode = if (interestFirst) PaymentAllocationMode.INTEREST_FIRST else PaymentAllocationMode.PRINCIPAL_FIRST,
+                            paymentMode = mode.name,
+                            note = note,
+                            allReceiptNumbers = snapshot.girvis.flatMap { it.payments }.map { it.receiptNumber },
+                        )
+                    }.onSuccess { updated ->
+                        save(updated)
+                        amount = ""; note = ""
+                        message = "Saved payment: ${updated.payments.last().receiptNumber} • ${selectedMode?.name}"
+                    }.onFailure { message = it.message ?: "Payment save failed" }
+                },
+                enabled = activeGirvis.isNotEmpty() && modes.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A)),
+            ) { Text("Saved Mode Ke Saath Payment Receive Karein") }
         }
-        OutlinedTextField(note, { note = it }, label = { Text("Payment note") }, modifier = Modifier.fillMaxWidth())
-        message?.let { Text(it, color = if (it.startsWith("Saved")) Color(0xFF138A4A) else MaterialTheme.colorScheme.error) }
-        Button(
-            onClick = {
-                runCatching {
-                    val girvi = requireNotNull(selectedGirvi) { "Active girvi select karein" }
-                    val mode = requireNotNull(selectedMode) { "Active payment mode select karein" }
-                    val updated = GirviSettlementUseCase.postPayment(
-                        girvi = girvi,
-                        months = months.toIntOrNull() ?: error("Valid months required"),
-                        amountPaise = MoneyInput.rupeesToPaise(amount),
-                        allocationMode = if (interestFirst) PaymentAllocationMode.INTEREST_FIRST else PaymentAllocationMode.PRINCIPAL_FIRST,
-                        paymentMode = mode.name,
-                        note = note,
-                        allReceiptNumbers = snapshot.girvis.flatMap { it.payments }.map { it.receiptNumber },
-                    )
-                    save(updated)
-                    amount = ""; note = ""
-                    message = "Saved payment: ${updated.payments.last().receiptNumber} • ${mode.name}"
-                }.onFailure { message = it.message ?: "Payment save failed" }
-            },
-            enabled = activeGirvis.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A)),
-        ) { Text("Saved Mode Ke Saath Payment Receive Karein") }
     }
 }
 
 @Composable
 private fun MasterChoiceRow(entries: List<MasterEntry>, selectedId: String?, select: (String) -> Unit) {
-    if (entries.isEmpty()) {
-        Text("Koi active saved option nahi", color = Color.Gray)
-        return
-    }
+    if (entries.isEmpty()) { Text("Koi active saved option nahi", color = Color.Gray); return }
     entries.forEach { entry ->
         TextButton(onClick = { select(entry.id) }) {
             val detail = if (entry.kind == MasterKind.INTEREST_PLAN) " (${entry.rateBasisPoints / 100.0}%)" else ""
