@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -50,6 +51,7 @@ class ToolsActivity : FragmentActivity() {
                 ToolsScreen(
                     recordsAvailable = recordsAvailable,
                     warning = warning,
+                    openSafety = { startActivity(Intent(this, DataSafetyActivity::class.java)) },
                     openReports = { startActivity(Intent(this, ReportsActivity::class.java)) },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
                     openRestore = { startActivity(Intent(this, RestoreActivity::class.java)) },
@@ -65,6 +67,7 @@ class ToolsActivity : FragmentActivity() {
 private fun ToolsScreen(
     recordsAvailable: Boolean,
     warning: String?,
+    openSafety: () -> Unit,
     openReports: () -> Unit,
     openBackup: () -> Unit,
     openRestore: () -> Unit,
@@ -81,7 +84,7 @@ private fun ToolsScreen(
         Icon(Icons.Default.Lock, null, tint = navy)
         Spacer(Modifier.height(10.dp))
         Text("Girvi Khata Tools", fontSize = 29.sp, fontWeight = FontWeight.Bold, color = navy)
-        Text("Reports, backup, restore aur PIN recovery", color = Color.Gray)
+        Text("Safety, reports, backup, restore aur PIN recovery", color = Color.Gray)
         Spacer(Modifier.height(24.dp))
         Card(
             Modifier.fillMaxWidth(),
@@ -90,6 +93,14 @@ private fun ToolsScreen(
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 warning?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
+                Button(
+                    onClick = openSafety,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF138A4A)),
+                ) {
+                    Icon(Icons.Default.Security, null)
+                    Text("  Data Safety Status")
+                }
                 Button(
                     onClick = openReports,
                     enabled = recordsAvailable,
@@ -116,7 +127,7 @@ private fun ToolsScreen(
                     Icon(Icons.Default.LockReset, null)
                     Text("  Purana PIN Kaam Nahi Kar Raha")
                 }
-                Text("PIN recovery sirf PIN verifier badalti hai; customer/girvi/payment records delete nahi hote.", color = Color.Gray, fontSize = 12.sp)
+                Text("Safety Status encrypted journal aur backup-due state dikhata hai. PIN recovery business records delete nahi karti.", color = Color.Gray, fontSize = 12.sp)
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
