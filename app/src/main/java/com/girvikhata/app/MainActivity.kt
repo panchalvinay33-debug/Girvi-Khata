@@ -33,29 +33,39 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.RecordStoreLoadState
+import com.girvikhata.app.security.BiometricAvailability
 import com.girvikhata.app.security.BiometricCapability
 import com.girvikhata.app.security.SecurityPreferences
 import com.girvikhata.app.security.SessionAutoLockPolicy
 
 class MainActivity : FragmentActivity() {
-    private val lockPolicy = SessionAutoLockPolicy()
     private var backgroundedAt: Long? = null
     private var lockSignal by mutableIntStateOf(0)
+    private var settingsSignal by mutableIntStateOf(0)
+    private lateinit var securityPreferences: SecurityPreferences
+    private lateinit var biometricCapability: BiometricCapability
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val securityPreferences = SecurityPreferences(applicationContext)
+        securityPreferences = SecurityPreferences(applicationContext)
         val recordStore = EncryptedRecordStore(applicationContext)
-        val biometricCapability = BiometricCapability(applicationContext)
+        biometricCapability = BiometricCapability(applicationContext)
         setContent {
             MaterialTheme {
+                settingsSignal
+                val sessionSettings = securityPreferences.sessionSettings()
+                val biometricAvailability = if (sessionSettings.biometricUnlockEnabled) {
+                    biometricCapability.availability()
+                } else {
+                    BiometricAvailability.UNSUPPORTED
+                }
                 var storeState by remember { mutableStateOf(recordStore.loadState()) }
                 Box(Modifier.fillMaxSize()) {
                     when (val state = storeState) {
                         is RecordStoreLoadState.Ready -> GirviKhataRoot(
                             securityPreferences = securityPreferences,
                             recordStore = recordStore,
-                            biometricAvailability = biometricCapability.availability(),
+                            biometricAvailability = biometricAvailability,
                             lockSignal = lockSignal,
                             requestBiometric = ::requestBiometric,
                         )
@@ -78,6 +88,11 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::securityPreferences.isInitialized) settingsSignal++
+    }
+
     override fun onStop() {
         super.onStop()
         if (!isChangingConfigurations) backgroundedAt = System.currentTimeMillis()
@@ -85,11 +100,18 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (lockPolicy.shouldLock(backgroundedAt, System.currentTimeMillis())) lockSignal++
+        if (::securityPreferences.isInitialized) {
+            val timeout = securityPreferences.sessionSettings().autoLockTimeoutMillis
+            if (SessionAutoLockPolicy(timeout).shouldLock(backgroundedAt, System.currentTimeMillis())) lockSignal++
+        }
         backgroundedAt = null
     }
 
     private fun requestBiometric(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        if (!securityPreferences.sessionSettings().biometricUnlockEnabled) {
+            onError("Biometric unlock Owner Settings mein disabled hai")
+            return
+        }
         val prompt = BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
