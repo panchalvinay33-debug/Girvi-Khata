@@ -1,0 +1,51 @@
+name: Security Guard
+
+on:
+  pull_request:
+  push:
+    branches: [main, agent/initial-foundation]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject forbidden production files
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden=$(find . -type f \
+            \( -name '*.jks' -o -name '*.keystore' -o -name 'google-services.json' \
+               -o -name 'client_secret*.json' -o -name '*.db' -o -name '*.sqlite' \
+               -o -name '*.gkb' -o -name '*.backup' -o -name '*.pem' -o -name '*.p12' \) \
+            -not -path './.git/*' || true)
+          if [ -n "$forbidden" ]; then
+            echo 'Forbidden sensitive files found:'
+            echo "$forbidden"
+            exit 1
+          fi
+
+      - name: Reject obvious secret patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          patterns='BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AIza[0-9A-Za-z_-]{30,}|recovery[_ -]?phrase[[:space:]]*[:=][[:space:]]*[^<]'
+          if grep -RInE "$patterns" . --exclude-dir=.git --exclude='security-guard.yml'; then
+            echo 'Potential secret material found. Remove it before merging.'
+            exit 1
+          fi
+
+      - name: Verify governance files
+        shell: bash
+        run: |
+          test -f SECURITY.md
+          test -f docs/ROADMAP.md
+          test -f docs/PROGRESS.md
+          test -f docs/DECISIONS.md
+          test -f docs/BACKUP_BLUEPRINT.md

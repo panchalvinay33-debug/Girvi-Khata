@@ -1,0 +1,110 @@
+name: Android Build
+
+on:
+  pull_request:
+  push:
+    branches: [agent/initial-foundation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android platform
+        run: sdkmanager --channel=0 "platforms;android-36" "platform-tools"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Restore stable testing keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.girvi-testing-signing
+          key: girvi-testing-signing-v2
+
+      - name: Prepare stable testing signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIGNING_DIR="$HOME/.girvi-testing-signing"
+          mkdir -p "$SIGNING_DIR"
+
+          if [ ! -f "$SIGNING_DIR/testing.keystore" ]; then
+            SIGNING_PASSWORD="$(openssl rand -hex 24)"
+            printf '%s' "$SIGNING_PASSWORD" > "$SIGNING_DIR/signing-password"
+            keytool -genkeypair \
+              -keystore "$SIGNING_DIR/testing.keystore" \
+              -storetype PKCS12 \
+              -storepass "$SIGNING_PASSWORD" \
+              -keypass "$SIGNING_PASSWORD" \
+              -alias girvi-testing \
+              -keyalg RSA \
+              -keysize 3072 \
+              -validity 3650 \
+              -dname "CN=Girvi Khata Testing, O=Girvi Khata, C=IN"
+          fi
+
+          SIGNING_PASSWORD="$(cat "$SIGNING_DIR/signing-password")"
+          keytool -list \
+            -keystore "$SIGNING_DIR/testing.keystore" \
+            -storepass "$SIGNING_PASSWORD" \
+            -alias girvi-testing >/dev/null
+
+          echo "GIRVI_TEST_KEYSTORE=$SIGNING_DIR/testing.keystore" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_STORE_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_KEY_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
+          echo "GIRVI_TEST_KEY_ALIAS=girvi-testing" >> "$GITHUB_ENV"
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleDebug --stacktrace 2>&1 | tee apk-build.log
+
+      - name: Upload testing APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: girvi-khata-testing-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-diagnostics
+          path: |
+            unit-test.log
+            apk-build.log
+            app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7
