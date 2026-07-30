@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.backup.PortableBackupCrypto
 import com.girvikhata.app.backup.SnapshotPortableCodec
+import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.export.SecureShare
 import com.girvikhata.app.security.PinVerificationResult
@@ -54,6 +55,7 @@ class BackupActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val security = SecurityPreferences(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
+        val journal = DataSafetyJournal(applicationContext)
         setContent {
             MaterialTheme {
                 BackupRoot(
@@ -62,6 +64,14 @@ class BackupActivity : FragmentActivity() {
                         val snapshot = store.load()
                         val payload = SnapshotPortableCodec.encode(snapshot)
                         val encrypted = PortableBackupCrypto.encrypt(payload, passphrase.toCharArray(), snapshot.schemaVersion)
+                        val verified = PortableBackupCrypto.decrypt(encrypted, passphrase.toCharArray())
+                        check(verified.payload.contentEquals(payload)) { "Backup package read-back verification failed" }
+                        check(verified.schemaVersion == snapshot.schemaVersion) { "Backup schema verification failed" }
+                        val packageSha = DataSafetyJournal.sha256(encrypted)
+                        val customerCount = snapshot.customers.size
+                        val girviCount = snapshot.girvis.size
+                        val ledgerCount = snapshot.girvis.sumOf { it.payments.size }
+                        journal.markVerifiedBackup(packageSha, customerCount, girviCount, ledgerCount)
                         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
                         SecureShare.shareBinary(
                             this,
@@ -70,7 +80,7 @@ class BackupActivity : FragmentActivity() {
                             encrypted,
                             "Girvi Khata encrypted backup",
                         )
-                        Triple(snapshot.customers.size, snapshot.girvis.size, snapshot.girvis.sumOf { it.payments.size })
+                        BackupResult(customerCount, girviCount, ledgerCount, packageSha)
                     },
                     close = ::finish,
                 )
@@ -79,18 +89,17 @@ class BackupActivity : FragmentActivity() {
     }
 }
 
+private data class BackupResult(val customers: Int, val girvis: Int, val ledgerEntries: Int, val sha256: String)
+
 @Composable
 private fun BackupRoot(
     verifyPin: (String) -> PinVerificationResult,
-    createBackup: (String) -> Triple<Int, Int, Int>,
+    createBackup: (String) -> BackupResult,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
-    if (!unlocked) {
-        BackupPinScreen(verifyPin, { unlocked = true }, close)
-    } else {
-        BackupCreateScreen(createBackup, close)
-    }
+    if (!unlocked) BackupPinScreen(verifyPin, { unlocked = true }, close)
+    else BackupCreateScreen(createBackup, close)
 }
 
 @Composable
@@ -126,27 +135,15 @@ private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, succes
 }
 
 @Composable
-private fun BackupCreateScreen(createBackup: (String) -> Triple<Int, Int, Int>, close: () -> Unit) {
+private fun BackupCreateScreen(createBackup: (String) -> BackupResult, close: () -> Unit) {
     var passphrase by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("12+ characters, letters aur digits zaroori") }
     var busy by remember { mutableStateOf(false) }
     BackupPanel("Portable Encrypted Backup", message) {
-        Text("Ye file reinstall ya phone loss ke baad recovery ke kaam aayegi. Passphrase bhoolne par backup recover nahi hoga.", color = Color.Gray)
-        OutlinedTextField(
-            passphrase,
-            { passphrase = it },
-            label = { Text("Recovery passphrase") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            confirm,
-            { confirm = it },
-            label = { Text("Passphrase dobara") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Text("Package encrypt hone ke baad app usko decrypt/read-back karke verify karegi. Share sheet mein Files/Drive choose karke external copy zaroor save karein.", color = Color.Gray)
+        OutlinedTextField(passphrase, { passphrase = it }, label = { Text("Recovery passphrase") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(confirm, { confirm = it }, label = { Text("Passphrase dobara") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(
             onClick = {
                 when {
@@ -154,7 +151,10 @@ private fun BackupCreateScreen(createBackup: (String) -> Triple<Int, Int, Int>, 
                     else -> {
                         busy = true
                         runCatching { createBackup(passphrase) }
-                            .onSuccess { counts -> message = "Backup ready: ${counts.first} customers • ${counts.second} girvi • ${counts.third} ledger entries" }
+                            .onSuccess { result ->
+                                message = "Verified package ready: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • SHA ${result.sha256.take(12)}…"
+                                passphrase = ""; confirm = ""
+                            }
                             .onFailure { message = it.message ?: "Backup create nahi hua" }
                         busy = false
                     }
@@ -163,7 +163,7 @@ private fun BackupCreateScreen(createBackup: (String) -> Triple<Int, Int, Int>, 
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF171752)),
-        ) { Text(if (busy) "Encrypt ho raha hai..." else "Backup Encrypt Karke Share") }
+        ) { Text(if (busy) "Encrypt & verify ho raha hai..." else "Backup Verify Karke Share") }
         OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
@@ -180,11 +180,7 @@ private fun BackupPanel(title: String, subtitle: String, content: @Composable ()
         Text(title, fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color(0xFF171752))
         Text(subtitle, color = Color.Gray)
         Spacer(Modifier.height(18.dp))
-        Card(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-        ) {
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
         }
     }
