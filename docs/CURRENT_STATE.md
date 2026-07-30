@@ -20,17 +20,17 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 
 ## Latest testing build
 
-- Build: `v0.11.0-alpha.11`
-- Version code/name: `11` / `0.11.0-testing`
+- Build: `v0.12.0-alpha.12`
+- Version code/name: `12` / `0.12.0-testing`
 - Package: `com.girvikhata.app.testing`
-- Source commit: `ed866d3580e747108ed5a4a53a0b36798a3eba6a`
-- Android workflow: `30485337748`
-- Security Guard: `30485348627`
-- Artifact ID: `8737489498`
-- APK size: `20,042,234 bytes`
-- APK SHA-256: `a1f95823e34ca86cb762e2d545984ca28699a1c470089203bb03fce24f4f0741`
+- Source commit: `1c028cfd8e1be02509240584e49dcf0317498df8`
+- Android workflow: `30512547105`
+- Security Guard: `30512547107`
+- Artifact ID: `8747719885`
+- APK size: `20,075,034 bytes`
+- APK SHA-256: `499349cb8aa4e681a6312e2ac82c4d15485d89799f7bd58354866c746eb0c27b`
 - CI status: unit tests, Compose/Android compilation, stable testing signing, artifact upload, Security Guard, ZIP integrity and APK integrity passed.
-- Owner status: Alpha 10 single-launcher/privacy and Alpha 11 local-store recovery physical-device tests pending.
+- Owner status: Alpha 10 navigation/privacy, Alpha 11 local-store recovery and Alpha 12 safety-journal workflows require physical-device confirmation.
 
 ## Current visible application scope
 
@@ -46,18 +46,20 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - Cash, UPI and bank modes
 - Immutable payment history and linked reversal
 - Release blocking, owner override and release metadata
-- Floating Tools entry for reports, backup, restore and security
+- Floating Tools entry for safety, reports, backup, restore and security
 - Explicit `Data Recovery Required` screen instead of silent empty records when all encrypted local copies fail
 
 ### Internal Tools
 
+- PIN-protected Data Safety Status dashboard
+- Encrypted hash-chained activity journal, backup-due state and latest verified package metadata
 - Reports and customer khata
 - Active/released/all filters
 - Today, 7-day, 30-day, all-time and exact custom From/To collection ranges
 - CSV, receipt and customer-statement sharing
-- Portable encrypted `.gkb` backup creation
+- Portable encrypted `.gkb` backup creation with local decrypt/read-back verification
 - Verified `.gkb` restore/import, including replacement of a quarantined damaged primary
-- Data-preserving PIN recovery
+- Data-preserving PIN recovery with a journal event
 - During local corruption, Reports and new-backup creation are blocked while Restore and PIN Recovery remain available
 - Tools is no longer a separate launcher icon; `MainActivity` is the only exported launcher activity
 
@@ -69,31 +71,36 @@ This file is the quickest authoritative summary of the repository. Detailed hist
 - Latest five local safety copies and latest two damaged-file quarantine copies are retained.
 - A damaged primary tries newest safety copies automatically and promotes the first verified copy.
 - If no valid local copy remains, the app blocks Dashboard and requires verified `.gkb` restore.
-- Portable backups use AES-256-GCM with a recovery-passphrase key derived by PBKDF2-HMAC-SHA256 at 310,000 iterations.
-- Portable packages use random salt and nonce and authenticated tamper detection.
+- A separate AES-256-GCM encrypted journal stores up to 500 SHA-256 hash-chained safety events.
+- Android `FileObserver` records aggregate committed business-store changes and deduplicates repeated callbacks using encrypted-file SHA/timing.
+- Backup becomes due after no verified package, five committed changes, or seven elapsed days.
+- Portable backups use AES-256-GCM with PBKDF2-HMAC-SHA256 at 310,000 iterations, random salt/nonce and authenticated tamper detection.
+- Generated backup packages are decrypted/read back in memory before their SHA/count metadata is recorded and Android share opens.
 - Restore validates schema, IDs, customer/girvi links, payment reconciliation, status values, timestamps, counts and package integrity before replacement.
 - Android automatic backup/device transfer remains disabled.
 - A central lifecycle guard applies Android `FLAG_SECURE` to every activity window where supported.
-- Only `MainActivity` is exported; Tools, Reports, Backup, Restore and PIN Recovery are internal activities.
+- Only `MainActivity` is exported; Tools, Safety, Reports, Backup, Restore and PIN Recovery are internal activities.
 - No developer master key, admin backdoor, central business database, ads or analytics exists.
 
 ## Important limitations
 
-- Alpha 10 privacy behavior, old Tools-icon removal and Alpha 11 fault recovery require owner physical-device confirmation.
+- Alpha 10 privacy behavior, Alpha 11 fault recovery and Alpha 12 observer/journal behavior require owner physical-device confirmation.
+- Alpha 12 committed business events are aggregate state-change records rather than exact field-level transaction labels.
+- Local package verification does not prove the user completed an external Files/Drive save after Android share opened.
 - Tools currently opens as an internal activity through a floating button rather than a native bottom-navigation page.
 - Persistence is still an encrypted snapshot file, not the final transactional encrypted relational database.
-- Local safety/quarantine copies are device-bound and disappear on uninstall or device loss; an external `.gkb` remains mandatory.
+- Local safety/quarantine/journal files are device-bound and disappear on uninstall or device loss; an external `.gkb` remains mandatory.
 - Google Drive automatic upload, account authorization, read-back verification, retention, scheduling and cloud restore discovery are not implemented.
 - PDF/thermal printing, media vault, final receipt templates and production signing are pending.
 
 ## Next priority order
 
-1. Owner test Alpha 11 as an in-place update, including all Alpha 10 navigation/privacy checks.
-2. Confirm normal verified-save persistence and recovery behavior using disposable dummy data only.
+1. Owner test Alpha 12 as an in-place update, including Alpha 10/11 regression checks.
+2. Confirm one committed dummy change creates one journal event and backup due/reset behavior is correct.
 3. Fix any physical-device regression before advancing the approved baseline.
-4. Replace the snapshot store with a transaction-safe encrypted relational database and migration tests.
-5. Add critical-change backup queue/status and local verified-backup history.
-6. Make the repository private, then implement owner-authorized Google Drive app-data backup with upload/read-back verification and retention.
+4. Replace the snapshot store with a transaction-safe encrypted relational database and exact transaction audit events.
+5. Make the repository private, then implement owner-authorized Google Drive app-data backup with upload/read-back verification and retention.
+6. Add production receipt/PDF/thermal printing and media-vault milestones after storage migration.
 
 ## Permanent delivery rule
 
