@@ -7,8 +7,7 @@ import java.util.concurrent.Executors
 
 /**
  * Records only committed primary-store replacements. Temporary and safety-copy writes are ignored.
- * The raw business file remains encrypted; only its SHA-256 and aggregate counts enter the journal.
- * Every verified commit is also mirrored into a transactional encrypted relational shadow database.
+ * Every verified commit is mirrored into the relational shadow and then master-ID links are verified.
  */
 class BusinessCommitObserver(context: Context) {
     private val appContext = context.applicationContext
@@ -58,6 +57,7 @@ class BusinessCommitObserver(context: Context) {
                         detail = "${status.syncMode ?: "SYNC"} • ${status.changedRows ?: 0} changed rows • ${status.consecutiveHealthySyncs} healthy syncs • fingerprint ${status.actualFingerprint?.take(16)}…",
                     )
                 }
+                synchronizeMasterLinks(snapshot)
             }
             .onFailure { error ->
                 runCatching {
@@ -68,6 +68,31 @@ class BusinessCommitObserver(context: Context) {
                     )
                 }
             }
+    }
+
+    private fun synchronizeMasterLinks(snapshot: AppSnapshot) {
+        runCatching {
+            val catalog = EncryptedMasterCatalogStore(appContext).load()
+            RelationalMasterSchemaInstaller(appContext).synchronize(snapshot, catalog)
+        }.onSuccess { result ->
+            runCatching {
+                DataSafetyJournal(appContext).recordNamedEvent(
+                    type = "RELATIONAL_MASTER_LINKS_VERIFIED",
+                    title = "Relational master links verified",
+                    detail = "${result.masterRows} masters • coverage ${result.coverage}",
+                    countsAsChange = false,
+                )
+            }
+        }.onFailure { error ->
+            runCatching {
+                DataSafetyJournal(appContext).recordNamedEvent(
+                    type = "RELATIONAL_MASTER_LINKS_FAILED",
+                    title = "Relational master links not verified",
+                    detail = (error.message ?: "Unknown relational master-link error").take(450),
+                    countsAsChange = false,
+                )
+            }
+        }
     }
 
     private companion object { const val BUSINESS_FILE = "business_records_v1.bin" }
