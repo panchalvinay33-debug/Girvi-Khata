@@ -11,8 +11,6 @@ import java.util.UUID
  * 2. the mutation produces a valid deterministic target snapshot,
  * 3. the encrypted snapshot save/read-back succeeds,
  * 4. the relational shadow independently reconstructs the same fingerprint.
- *
- * Alpha 23 does not cut normal reads over to SQLite.
  */
 class VerifiedBusinessWriteCoordinator(
     context: Context,
@@ -21,57 +19,77 @@ class VerifiedBusinessWriteCoordinator(
         EncryptedRelationalShadowStore(context.applicationContext)
     },
     private val journal: DataSafetyJournal = DataSafetyJournal(context.applicationContext),
+    private val observationStore: VerifiedWriteObservationStore = VerifiedWriteObservationStore(context.applicationContext),
 ) {
     @Synchronized
     fun execute(request: VerifiedBusinessWriteRequest): VerifiedBusinessWriteResult {
-        val before = records.load()
-        val beforeFingerprint = RelationalShadowFingerprint.sha256(before)
-        require(request.expectedFingerprint == beforeFingerprint) {
-            "Business data changed before transaction ${request.transactionId}; refresh and retry"
-        }
+        return try {
+            val before = records.load()
+            val beforeFingerprint = RelationalShadowFingerprint.sha256(before)
+            require(request.expectedFingerprint == beforeFingerprint) {
+                "Business data changed before transaction ${request.transactionId}; refresh and retry"
+            }
 
-        val target = request.mutation.apply(before)
-        require(target != before) { "Transaction ${request.transactionId} produced no business change" }
-        validateTarget(target)
-        val targetFingerprint = RelationalShadowFingerprint.sha256(target)
+            val target = request.mutation.apply(before)
+            require(target != before) { "Transaction ${request.transactionId} produced no business change" }
+            validateTarget(target)
+            val targetFingerprint = RelationalShadowFingerprint.sha256(target)
 
-        records.save(target)
-        val persisted = records.load()
-        val persistedFingerprint = RelationalShadowFingerprint.sha256(persisted)
-        check(persistedFingerprint == targetFingerprint) {
-            "Authoritative snapshot verification failed for ${request.transactionId}"
-        }
+            records.save(target)
+            val persisted = records.load()
+            val persistedFingerprint = RelationalShadowFingerprint.sha256(persisted)
+            check(persistedFingerprint == targetFingerprint) {
+                "Authoritative snapshot verification failed for ${request.transactionId}"
+            }
 
-        val relationalStatus = shadowFactory().use { shadow ->
-            shadow.syncIncremental(persisted)
-            val dual = shadow.dualReadComparison(persisted)
-            check(dual.matches) { dual.reason ?: "Relational dual-read verification failed" }
-            shadow.statusAgainst(persisted)
-        }
-        check(relationalStatus.healthy) {
-            relationalStatus.reason ?: "Relational status unhealthy after ${request.transactionId}"
-        }
+            val relationalStatus = shadowFactory().use { shadow ->
+                shadow.syncIncremental(persisted)
+                val dual = shadow.dualReadComparison(persisted)
+                check(dual.matches) { dual.reason ?: "Relational dual-read verification failed" }
+                shadow.statusAgainst(persisted)
+            }
+            check(relationalStatus.healthy) {
+                relationalStatus.reason ?: "Relational status unhealthy after ${request.transactionId}"
+            }
 
-        runCatching {
-            journal.recordNamedEvent(
-                type = "VERIFIED_BUSINESS_WRITE",
-                title = request.title.take(80),
-                detail = "${request.transactionId} • ${request.mutation.auditLabel} • ${beforeFingerprint.take(12)}→${targetFingerprint.take(12)} • ${relationalStatus.syncMode ?: "SYNC"}",
+            val result = VerifiedBusinessWriteResult(
+                transactionId = request.transactionId,
+                beforeFingerprint = beforeFingerprint,
+                afterFingerprint = targetFingerprint,
+                relationalFingerprint = relationalStatus.actualFingerprint,
+                syncMode = relationalStatus.syncMode,
+                changedRows = relationalStatus.changedRows ?: 0,
+                committedAt = System.currentTimeMillis(),
             )
-        }
+            val observation = observationStore.recordSuccess(result)
 
-        return VerifiedBusinessWriteResult(
-            transactionId = request.transactionId,
-            beforeFingerprint = beforeFingerprint,
-            afterFingerprint = targetFingerprint,
-            relationalFingerprint = relationalStatus.actualFingerprint,
-            syncMode = relationalStatus.syncMode,
-            changedRows = relationalStatus.changedRows ?: 0,
-            committedAt = System.currentTimeMillis(),
-        )
+            runCatching {
+                journal.recordNamedEvent(
+                    type = "VERIFIED_BUSINESS_WRITE",
+                    title = request.title.take(80),
+                    detail = "${request.transactionId} • ${request.mutation.auditLabel} • ${beforeFingerprint.take(12)}→${targetFingerprint.take(12)} • ${relationalStatus.syncMode ?: "SYNC"} • proof ${observation.successfulWrites}/${VerifiedWriteCutoverPolicy.MINIMUM_COORDINATED_WRITES}",
+                )
+            }
+            result
+        } catch (failure: Throwable) {
+            val reason = failure.message ?: failure::class.java.simpleName
+            val observation = runCatching {
+                observationStore.recordFailure(request.transactionId, reason)
+            }.getOrNull()
+            runCatching {
+                journal.recordNamedEvent(
+                    type = "VERIFIED_BUSINESS_WRITE_FAILED",
+                    title = request.title.take(80),
+                    detail = "${request.transactionId} • ${request.mutation.auditLabel} • ${reason.take(180)} • successful ${observation?.successfulWrites ?: 0}",
+                )
+            }
+            throw failure
+        }
     }
 
     fun currentFingerprint(): String = RelationalShadowFingerprint.sha256(records.load())
+
+    fun observation(): VerifiedWriteObservation = observationStore.load()
 
     private fun validateTarget(snapshot: AppSnapshot) {
         require(snapshot.customers.map { it.id }.distinct().size == snapshot.customers.size) { "Duplicate customer ID" }
