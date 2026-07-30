@@ -21,6 +21,11 @@
         </provider>
 
         <activity
+            android:name=".SettlementCenterActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".OwnerSettingsActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
