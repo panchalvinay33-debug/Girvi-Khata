@@ -1,5 +1,8 @@
 package com.girvikhata.app.data
 
+import com.girvikhata.app.domain.MasterCatalog
+import com.girvikhata.app.domain.MasterKind
+
 /** Schema-neutral extraction used before dedicated relational master-id columns are introduced. */
 object RelationalMasterLinkResolver {
     private val unitPattern = Regex("(?:^| • )Unit: ([^•]+)")
