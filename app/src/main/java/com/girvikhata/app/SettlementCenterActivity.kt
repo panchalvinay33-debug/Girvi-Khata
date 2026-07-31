@@ -37,6 +37,9 @@ import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.GirviRecord
+import com.girvikhata.app.data.VerifiedBusinessMutation
+import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
+import com.girvikhata.app.data.VerifiedBusinessWriteRequest
 import com.girvikhata.app.domain.GirviSettlementUseCase
 import com.girvikhata.app.domain.ManualInterestAdjustment
 import com.girvikhata.app.domain.SettlementReceiptText
@@ -50,6 +53,7 @@ class SettlementCenterActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val security = SecurityPreferences(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
+        val coordinator = VerifiedBusinessWriteCoordinator(applicationContext)
         val journal = DataSafetyJournal(applicationContext)
         setContent {
             MaterialTheme {
@@ -58,16 +62,21 @@ class SettlementCenterActivity : FragmentActivity() {
                     verifyPin = { security.verify(it.toCharArray()) },
                     snapshot = snapshot,
                     saveAdjustment = { girvi, amount, reason ->
-                        val result = ManualInterestAdjustment.apply(girvi, amount, reason)
-                        val next = snapshot.copy(girvis = snapshot.girvis.map { if (it.id == girvi.id) result.updatedGirvi else it })
-                        store.save(next)
+                        val adjustment = ManualInterestAdjustment.apply(girvi, amount, reason)
+                        coordinator.execute(
+                            VerifiedBusinessWriteRequest(
+                                expectedFingerprint = coordinator.currentFingerprint(),
+                                mutation = VerifiedBusinessMutation.UpsertGirvi(adjustment.updatedGirvi),
+                                title = "Interest adjustment ${girvi.girviNumber}",
+                            ),
+                        )
                         journal.recordNamedEvent(
                             "INTEREST_ADJUSTMENT_REASON",
                             "Interest adjustment reason",
-                            "${girvi.girviNumber} • ${signedMoney(result.deltaPaise)} • ${result.reason}",
+                            "${girvi.girviNumber} • ${signedMoney(adjustment.deltaPaise)} • ${adjustment.reason}",
                         )
-                        snapshot = next
-                        result.updatedGirvi
+                        snapshot = store.load()
+                        adjustment.updatedGirvi
                     },
                     shareReceipt = { girvi, months ->
                         SecureShare.shareText(this, "Settlement ${girvi.girviNumber}", SettlementReceiptText.create(girvi, months))
@@ -178,7 +187,7 @@ private fun SettlementDashboard(
             confirmButton = {
                 Button(onClick = {
                     runCatching { saveAdjustment(girvi, amount, reason) }
-                        .onSuccess { selectedId = it.id; message = "Adjustment saved. Reason encrypted audit journal mein record hua. External backup banayein."; adjustmentFor = null }
+                        .onSuccess { selectedId = it.id; message = "Adjustment saved through verified write. External backup banayein."; adjustmentFor = null }
                         .onFailure { message = it.message ?: "Adjustment save nahi hua" }
                 }) { Text("Save Adjustment") }
             },
