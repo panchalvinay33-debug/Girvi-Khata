@@ -53,10 +53,7 @@ import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.RecordStoreLoadState
-import com.girvikhata.app.data.VerifiedBusinessMutation
-import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
-import com.girvikhata.app.data.VerifiedBusinessWriteRequest
-import com.girvikhata.app.data.VerifiedBusinessWriteResult
+import com.girvikhata.app.data.RestoreGenerationCoordinator
 import com.girvikhata.app.domain.MasterCatalog
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
@@ -72,7 +69,7 @@ class RestoreActivity : FragmentActivity() {
         val security = SecurityPreferences(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
         val masterStore = EncryptedMasterCatalogStore(applicationContext)
-        val coordinator = VerifiedBusinessWriteCoordinator(applicationContext)
+        val restoreCoordinator = RestoreGenerationCoordinator(applicationContext)
         setContent {
             MaterialTheme {
                 RestoreRoot(
@@ -96,14 +93,12 @@ class RestoreActivity : FragmentActivity() {
                             is RecordStoreLoadState.Ready -> createSafetyBackup(current.snapshot, masterStore.load(), phrase)
                             is RecordStoreLoadState.Corrupt -> quarantineDamagedPrimary()
                         }
-                        val result = coordinator.execute(
-                            VerifiedBusinessWriteRequest(
-                                expectedFingerprint = coordinator.currentFingerprint(),
-                                mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(preview.snapshot),
-                                title = "Verified backup restore ${preview.sha256.take(12)}",
-                            ),
+                        val result = restoreCoordinator.restore(
+                            targetSnapshot = preview.snapshot,
+                            importedMasters = preview.masterCatalog,
+                            containsPortableMasters = preview.containsPortableMasters,
+                            backupSha256 = preview.sha256,
                         )
-                        if (preview.containsPortableMasters) masterStore.save(preview.masterCatalog)
 
                         store.load().also { reloaded ->
                             require(reloaded.customers.size == preview.inspection.customerCount) { "Restore customer verification failed" }
@@ -181,7 +176,7 @@ private fun RestoreRoot(
     verifyPin: (String) -> PinVerificationResult,
     readPackage: (Uri) -> ByteArray,
     decryptPreview: (ByteArray, String) -> RestorePreview,
-    commitRestore: (RestorePreview, String) -> VerifiedBusinessWriteResult,
+    commitRestore: (RestorePreview, String) -> RestoreGenerationCoordinator.Result,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
@@ -227,7 +222,7 @@ private fun RestorePinScreen(
 private fun RestoreWizard(
     readPackage: (Uri) -> ByteArray,
     decryptPreview: (ByteArray, String) -> RestorePreview,
-    commitRestore: (RestorePreview, String) -> VerifiedBusinessWriteResult,
+    commitRestore: (RestorePreview, String) -> RestoreGenerationCoordinator.Result,
     close: () -> Unit,
 ) {
     var packageBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -299,7 +294,7 @@ private fun RestoreWizard(
                         .onSuccess { result ->
                             restored = true
                             phrase = ""
-                            message = "Restore successful • TX ${result.transactionId.take(8)}. Main app dobara check karein."
+                            message = "Restore successful • Generation ${result.generationId.take(8)}. Main app dobara check karein."
                         }
                         .onFailure { message = it.message ?: "Restore commit failed" }
                 },
