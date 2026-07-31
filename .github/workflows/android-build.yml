@@ -43,6 +43,12 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
+
       - name: Restore pinned testing signing identity
         shell: bash
         env:
@@ -82,12 +88,6 @@ jobs:
 
           echo "GIRVI_TEST_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
           echo "Signing certificate verified: $ACTUAL_CERT_SHA256"
-
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -o pipefail
-          gradle --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
 
       - name: Build debug APK
         shell: bash
