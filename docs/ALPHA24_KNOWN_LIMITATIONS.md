@@ -4,20 +4,20 @@
 
 The testing APK cannot be produced until issue #6 provisions one permanent signing identity. Random or regenerated signing is forbidden.
 
-## Cross-store restore atomicity
+## Cross-store restore recovery
 
-Business records and the portable master catalog are stored in separate encrypted stores. Alpha 24 verifies each store after restore and creates a pre-restore encrypted safety backup, but a process termination in the narrow interval between the business snapshot commit and master-catalog save can leave the two stores from different restore generations.
+Alpha 24 now coordinates business records and the portable master catalog through one restore generation protocol:
 
-Release treatment:
+- target business data and target masters are staged together in an app-private encrypted bundle;
+- metadata-only generation intent is persisted before either authoritative store changes;
+- the business snapshot activates through the verified write coordinator and relational proof;
+- portable masters activate only after business proof is complete;
+- startup deterministically completes an unambiguous interrupted generation;
+- unknown, mismatched or corrupted generations block normal business writes;
+- legacy backups preserve the current master catalog as the explicit generation target;
+- staged data and generation metadata are removed only after both target fingerprints verify.
 
-- keep relational source-of-truth cutover blocked;
-- perform restore testing from a fresh Alpha 21 backup during issue #7;
-- after restore, verify business counts and the complete master catalog;
-- kill the process and relaunch before approval;
-- retain the pre-restore `.gkb` safety backup until owner approval;
-- do not describe portable restore as fully cross-store atomic in Alpha 24.
-
-A future milestone should introduce a shared restore-generation marker or one coordinated encrypted bundle transaction covering both business records and masters.
+The previous known gap where process death between business and master saves could silently expose mixed generations is therefore closed in code. Release approval still requires issue #7 physical-device interruption testing, including process kill and relaunch during restore, verification of both stores, and retention of the pre-restore `.gkb` safety backup until owner approval.
 
 ## Physical-device evidence
 
