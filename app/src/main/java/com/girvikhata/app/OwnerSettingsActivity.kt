@@ -39,10 +39,12 @@ import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.CategoryRecord
 import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.data.RelationalShadowFingerprint
+import com.girvikhata.app.data.RenameCategoryMutation
+import com.girvikhata.app.data.ReorderCategoryMutation
 import com.girvikhata.app.data.VerifiedBusinessMutation
 import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
 import com.girvikhata.app.data.VerifiedBusinessWriteRequest
-import com.girvikhata.app.domain.CategorySettingsOperations
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import com.girvikhata.app.security.SessionSecuritySettings
@@ -57,12 +59,11 @@ class OwnerSettingsActivity : FragmentActivity() {
             MaterialTheme {
                 var snapshot by remember { mutableStateOf(store.load()) }
 
-                fun commitCategorySnapshot(updated: AppSnapshot, title: String) {
-                    if (updated == snapshot) return
+                fun commitCategoryMutation(mutation: VerifiedBusinessMutation, title: String) {
                     coordinator.execute(
                         VerifiedBusinessWriteRequest(
-                            expectedFingerprint = coordinator.currentFingerprint(),
-                            mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(updated),
+                            expectedFingerprint = RelationalShadowFingerprint.sha256(snapshot),
+                            mutation = mutation,
                             title = title,
                         ),
                     )
@@ -76,14 +77,14 @@ class OwnerSettingsActivity : FragmentActivity() {
                     saveSecurity = security::saveSessionSettings,
                     snapshot = snapshot,
                     renameCategory = { id, name ->
-                        commitCategorySnapshot(
-                            CategorySettingsOperations.rename(snapshot, id, name),
+                        commitCategoryMutation(
+                            RenameCategoryMutation(id, name),
                             "Owner category rename",
                         )
                     },
                     moveCategory = { id, direction ->
-                        commitCategorySnapshot(
-                            CategorySettingsOperations.move(snapshot, id, direction),
+                        commitCategoryMutation(
+                            ReorderCategoryMutation(id, direction),
                             "Owner category reorder",
                         )
                     },
