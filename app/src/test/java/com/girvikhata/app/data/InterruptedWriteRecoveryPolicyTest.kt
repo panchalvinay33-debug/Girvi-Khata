@@ -1,6 +1,7 @@
 package com.girvikhata.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -53,6 +54,16 @@ class InterruptedWriteRecoveryPolicyTest {
             InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY,
             InterruptedWriteRecoveryPolicy.evaluate(pending("after"), "unexpected").action,
         )
+    }
+
+    @Test
+    fun onlyProvenPreCommitFailureMayBecomeFailed() {
+        val intent = pending("after")
+
+        assertTrue(InterruptedWriteRecoveryPolicy.mayMarkFailed(intent, "before"))
+        assertFalse(InterruptedWriteRecoveryPolicy.mayMarkFailed(intent, "after"))
+        assertFalse(InterruptedWriteRecoveryPolicy.mayMarkFailed(intent, "unexpected"))
+        assertFalse(InterruptedWriteRecoveryPolicy.mayMarkFailed(intent, null))
     }
 
     @Test
