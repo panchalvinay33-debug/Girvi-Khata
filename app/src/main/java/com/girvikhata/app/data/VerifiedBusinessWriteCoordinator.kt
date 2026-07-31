@@ -13,9 +13,15 @@ class VerifiedBusinessWriteCoordinator(
     private val journal: DataSafetyJournal = DataSafetyJournal(context.applicationContext),
     private val observationStore: VerifiedWriteObservationStore = VerifiedWriteObservationStore(context.applicationContext),
     private val intentStore: VerifiedWriteIntentStore = VerifiedWriteIntentStore(context.applicationContext),
+    private val recoveryCoordinator: InterruptedWriteRecoveryCoordinator = InterruptedWriteRecoveryCoordinator(context.applicationContext),
 ) {
     @Synchronized
     fun execute(request: VerifiedBusinessWriteRequest): VerifiedBusinessWriteResult {
+        val recovery = recoveryCoordinator.reconcileOnStartup()
+        require(recovery.action != InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY) {
+            "Unresolved interrupted transaction ${recovery.transactionId ?: "unknown"}; recovery required before new writes"
+        }
+
         intentStore.begin(
             transactionId = request.transactionId,
             mutationLabel = request.mutation.auditLabel,
