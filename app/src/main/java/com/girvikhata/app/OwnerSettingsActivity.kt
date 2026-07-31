@@ -39,6 +39,9 @@ import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.CategoryRecord
 import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.data.VerifiedBusinessMutation
+import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
+import com.girvikhata.app.data.VerifiedBusinessWriteRequest
 import com.girvikhata.app.domain.CategorySettingsOperations
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
@@ -49,9 +52,23 @@ class OwnerSettingsActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val security = SecurityPreferences(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
+        val coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = store)
         setContent {
             MaterialTheme {
                 var snapshot by remember { mutableStateOf(store.load()) }
+
+                fun commitCategorySnapshot(updated: AppSnapshot, title: String) {
+                    if (updated == snapshot) return
+                    coordinator.execute(
+                        VerifiedBusinessWriteRequest(
+                            expectedFingerprint = coordinator.currentFingerprint(),
+                            mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(updated),
+                            title = title,
+                        ),
+                    )
+                    snapshot = store.load()
+                }
+
                 OwnerSettingsRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
                     verifierStatus = security.verifierStatus().name,
@@ -59,14 +76,16 @@ class OwnerSettingsActivity : FragmentActivity() {
                     saveSecurity = security::saveSessionSettings,
                     snapshot = snapshot,
                     renameCategory = { id, name ->
-                        val updated = CategorySettingsOperations.rename(snapshot, id, name)
-                        store.save(updated)
-                        snapshot = updated
+                        commitCategorySnapshot(
+                            CategorySettingsOperations.rename(snapshot, id, name),
+                            "Owner category rename",
+                        )
                     },
                     moveCategory = { id, direction ->
-                        val updated = CategorySettingsOperations.move(snapshot, id, direction)
-                        if (updated != snapshot) store.save(updated)
-                        snapshot = updated
+                        commitCategorySnapshot(
+                            CategorySettingsOperations.move(snapshot, id, direction),
+                            "Owner category reorder",
+                        )
                     },
                     close = ::finish,
                 )
@@ -123,8 +142,7 @@ private fun SettingsPinScreen(verifyPin: (String) -> PinVerificationResult, succ
             enabled = pin.length == 6,
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         ) { Text("PIN Verify") }
-        OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
-    }
+        OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }</n    }
 }
 
 @Composable
