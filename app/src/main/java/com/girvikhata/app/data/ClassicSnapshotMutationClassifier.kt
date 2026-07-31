@@ -94,36 +94,54 @@ object ClassicSnapshotMutationClassifier {
     }
 
     private fun classifyCategoryChange(before: AppSnapshot, next: AppSnapshot): Classified? {
-        require(next.customers == before.customers && next.girvis == before.girvis) {
-            "Category change cannot alter business records"
-        }
+        if (next.customers != before.customers) return null
 
-        if (next.categories.size == before.categories.size + 1) {
-            require(next.categories.containsAll(before.categories)) { "Category add altered existing categories" }
-            val category = next.categories.single { candidate -> before.categories.none { it.id == candidate.id } }
-            return Classified(
-                mutation = VerifiedBusinessMutation.AddCategory(category),
-                title = "Classic category ${category.name} added",
-            )
+        val candidates = mutableListOf<Classified>()
+
+        if (next.categories.size == before.categories.size + 1 && next.girvis == before.girvis) {
+            val added = next.categories.filter { candidate -> before.categories.none { it.id == candidate.id } }
+            if (added.size == 1) {
+                val category = added.single()
+                candidates += Classified(
+                    mutation = VerifiedBusinessMutation.AddCategory(category),
+                    title = "Classic category ${category.name} added",
+                )
+            }
         }
 
         if (next.categories.size == before.categories.size) {
-            val changed = before.categories.mapNotNull { old ->
-                val updated = next.categories.firstOrNull { it.id == old.id }
-                    ?: error("Classic category deletion is blocked")
-                if (updated == old) null else old to updated
+            before.categories.forEach { category ->
+                val updated = next.categories.firstOrNull { it.id == category.id }
+                if (updated != null) {
+                    if (updated.name != category.name) {
+                        candidates += Classified(
+                            mutation = RenameCategoryMutation(category.id, updated.name),
+                            title = "Owner category ${category.name} renamed to ${updated.name}",
+                        )
+                    }
+                    if (updated.active != category.active) {
+                        candidates += Classified(
+                            mutation = VerifiedBusinessMutation.SetCategoryActive(category.id, updated.active),
+                            title = "Classic category ${category.name} ${if (updated.active) "activated" else "deactivated"}",
+                        )
+                    }
+                }
+                candidates += Classified(
+                    mutation = ReorderCategoryMutation(category.id, -1),
+                    title = "Owner category ${category.name} moved up",
+                )
+                candidates += Classified(
+                    mutation = ReorderCategoryMutation(category.id, 1),
+                    title = "Owner category ${category.name} moved down",
+                )
             }
-            if (changed.isEmpty()) return null
-            require(changed.size == 1) { "Classic flow must change exactly one category" }
-            val (old, updated) = changed.single()
-            require(updated.name == old.name) { "Classic category rename requires Owner Settings" }
-            require(updated.active != old.active) { "Unsupported classic category change" }
-            return Classified(
-                mutation = VerifiedBusinessMutation.SetCategoryActive(old.id, updated.active),
-                title = "Classic category ${old.name} ${if (updated.active) "activated" else "deactivated"}",
-            )
         }
 
-        return null
+        val matches = candidates.filter { candidate ->
+            runCatching { candidate.mutation.apply(before) == next }.getOrDefault(false)
+        }
+        if (matches.isEmpty()) return null
+        require(matches.size == 1) { "Ambiguous category snapshot change" }
+        return matches.single()
     }
 }
