@@ -3,7 +3,7 @@ name: Security Guard
 on:
   pull_request:
   push:
-    branches: [main, agent/initial-foundation]
+    branches: [main, agent/alpha24-production-hardening]
 
 permissions:
   contents: read
@@ -38,6 +38,21 @@ jobs:
           patterns='BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AIza[0-9A-Za-z_-]{30,}|recovery[_ -]?phrase[[:space:]]*[:=][[:space:]]*[^<]'
           if grep -RInE "$patterns" . --exclude-dir=.git --exclude='security-guard.yml'; then
             echo 'Potential secret material found. Remove it before merging.'
+            exit 1
+          fi
+
+      - name: Reject direct authoritative UI writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ui_root='app/src/main/java/com/girvikhata/app'
+          violations=$(grep -RInE '\b(store|records|recordStore)\.save\(' "$ui_root" \
+            --include='*.kt' \
+            --exclude-dir='data' || true)
+          if [ -n "$violations" ]; then
+            echo 'Direct EncryptedRecordStore-style UI writes found:'
+            echo "$violations"
+            echo 'Route business mutations through VerifiedBusinessWriteCoordinator.'
             exit 1
           fi
 
