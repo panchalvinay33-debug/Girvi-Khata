@@ -1,6 +1,7 @@
 package com.girvikhata.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InterruptedWriteRecoveryPolicyTest {
@@ -52,5 +53,17 @@ class InterruptedWriteRecoveryPolicyTest {
             InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY,
             InterruptedWriteRecoveryPolicy.evaluate(pending("after"), "unexpected").action,
         )
+    }
+
+    @Test
+    fun reconciliationExecutionFailureBlocksAndKeepsTransactionIdentity() {
+        val decision = InterruptedWriteRecoveryPolicy.executionFailure(
+            pending("after"),
+            IllegalStateException("relational proof mismatch"),
+        )
+
+        assertEquals(InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY, decision.action)
+        assertEquals("tx-1", decision.transactionId)
+        assertTrue(decision.reason.contains("relational proof mismatch"))
     }
 }
