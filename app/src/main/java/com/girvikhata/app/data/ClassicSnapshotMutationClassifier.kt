@@ -141,7 +141,8 @@ object ClassicSnapshotMutationClassifier {
             runCatching { candidate.mutation.apply(before) == next }.getOrDefault(false)
         }
         if (matches.isEmpty()) return null
-        require(matches.size == 1) { "Ambiguous category snapshot change" }
-        return matches.single()
+        val auditLabels = matches.map { it.mutation.auditLabel }.distinct()
+        require(auditLabels.size == 1) { "Ambiguous category snapshot change" }
+        return matches.first()
     }
 }
