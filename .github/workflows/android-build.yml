@@ -40,8 +40,8 @@ jobs:
       - name: Accept Android licenses
         run: yes | sdkmanager --licenses >/dev/null || true
 
-      - name: Install Android platform
-        run: sdkmanager --channel=0 "platforms;android-36" "platform-tools"
+      - name: Install Android platform and build tools
+        run: sdkmanager --channel=0 "platforms;android-36" "platform-tools" "build-tools;36.0.0"
 
       - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v4
@@ -114,9 +114,11 @@ jobs:
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
           test -f "$APK"
+          test -x "$APKSIGNER"
           ACTUAL_APK_CERT_SHA256="$(
-            apksigner verify --print-certs "$APK" \
+            "$APKSIGNER" verify --print-certs "$APK" \
             | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
             | head -n1 \
             | tr '[:upper:]' '[:lower:]' \
