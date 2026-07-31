@@ -142,7 +142,8 @@ private fun SettingsPinScreen(verifyPin: (String) -> PinVerificationResult, succ
             enabled = pin.length == 6,
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         ) { Text("PIN Verify") }
-        OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }</n    }
+        OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+    }
 }
 
 @Composable
