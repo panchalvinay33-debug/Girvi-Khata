@@ -16,12 +16,13 @@ concurrency:
 jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       GIRVI_TEST_STORE_PASSWORD: ${{ secrets.GIRVI_TEST_STORE_PASSWORD }}
       GIRVI_TEST_KEY_PASSWORD: ${{ secrets.GIRVI_TEST_KEY_PASSWORD }}
       GIRVI_TEST_KEY_ALIAS: ${{ secrets.GIRVI_TEST_KEY_ALIAS }}
       GIRVI_TEST_CERT_SHA256: ${{ secrets.GIRVI_TEST_CERT_SHA256 }}
+      GRADLE_OPTS: -Dorg.gradle.vfs.watch=false
 
     steps:
       - name: Checkout source
@@ -48,16 +49,18 @@ jobs:
           gradle-version: '9.5.0'
 
       - name: Run unit tests
+        timeout-minutes: 15
         shell: bash
         run: |
           set -o pipefail
-          gradle --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
+          gradle --no-daemon --no-watch-fs testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
 
       - name: Verify Android compilation
+        timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          gradle --no-daemon compileDebugKotlin --stacktrace 2>&1 | tee compile-debug.log
+          gradle --no-daemon --no-watch-fs compileDebugKotlin --stacktrace 2>&1 | tee compile-debug.log
 
       - name: Restore pinned testing signing identity
         shell: bash
@@ -100,10 +103,11 @@ jobs:
           echo "Signing certificate verified: $ACTUAL_CERT_SHA256"
 
       - name: Build debug APK
+        timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          gradle --no-daemon assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          gradle --no-daemon --no-watch-fs assembleDebug --stacktrace 2>&1 | tee apk-build.log
 
       - name: Verify APK signing certificate
         shell: bash
