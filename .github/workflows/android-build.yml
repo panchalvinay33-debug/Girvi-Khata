@@ -129,8 +129,10 @@ jobs:
 
           ACTUAL_APK_CERT_SHA256="$(
             printf '%s\n' "$CERT_OUTPUT" \
-            | awk -F': ' 'tolower($1) ~ /certificate sha-256 digest$/ {value=$2; gsub(/:/, "", value); print tolower(value); exit}' \
-            | tr -d '[:space:]'
+            | tr -d ':' \
+            | grep -Eio '[0-9a-f]{64}' \
+            | head -n1 \
+            | tr '[:upper:]' '[:lower:]'
           )"
           EXPECTED_CERT_SHA256="$(printf '%s' "$GIRVI_TEST_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
           if [ -z "$ACTUAL_APK_CERT_SHA256" ]; then
