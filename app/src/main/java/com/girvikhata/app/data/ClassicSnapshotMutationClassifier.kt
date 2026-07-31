@@ -63,7 +63,7 @@ object ClassicSnapshotMutationClassifier {
 
         if (updated.status == "RELEASED" && old.status == "ACTIVE") {
             return Classified(
-                mutation = VerifiedBusinessMutation.ReleaseGirvi(old.id, updated),
+                mutation = VerifiedBusinessMutation.ReleaseGirvi(updated),
                 title = "Classic girvi ${old.girviNumber} released",
             )
         }
@@ -79,8 +79,10 @@ object ClassicSnapshotMutationClassifier {
         }
         val payment = updated.payments.last()
         return if (payment.isReversal) {
+            val originalPaymentId = payment.reversedPaymentId
+                ?: error("Classic reversal original payment identity missing")
             Classified(
-                mutation = VerifiedBusinessMutation.ReversePayment(old.id, payment),
+                mutation = VerifiedBusinessMutation.ReversePayment(old.id, originalPaymentId, payment),
                 title = "Classic payment ${payment.receiptNumber} reversed",
             )
         } else {
