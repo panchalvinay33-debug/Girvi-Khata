@@ -42,4 +42,13 @@ object InterruptedWriteRecoveryPolicy {
             reason = "Snapshot fingerprint matches neither pre-write nor known target state",
         )
     }
+
+    fun executionFailure(intent: VerifiedWriteIntent?, cause: Throwable): InterruptedWriteRecoveryDecision {
+        val detail = cause.message?.takeIf { it.isNotBlank() } ?: cause::class.java.simpleName
+        return InterruptedWriteRecoveryDecision(
+            action = InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY,
+            transactionId = intent?.transactionId,
+            reason = "Startup reconciliation failed safely: ${detail.take(180)}",
+        )
+    }
 }
