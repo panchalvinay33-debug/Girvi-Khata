@@ -25,6 +25,12 @@ object VerifiedWriteIntentReducer {
             startedAt = startedAt,
         )
 
+    fun prepareTarget(current: VerifiedWriteIntent, targetFingerprint: String): VerifiedWriteIntent {
+        require(current.state == VerifiedWriteIntentState.PENDING) { "Only pending intent can prepare target" }
+        require(targetFingerprint.isNotBlank()) { "Target fingerprint required" }
+        return current.copy(targetFingerprint = targetFingerprint)
+    }
+
     fun commit(current: VerifiedWriteIntent, targetFingerprint: String, finishedAt: Long): VerifiedWriteIntent = current.copy(
         targetFingerprint = targetFingerprint,
         state = VerifiedWriteIntentState.COMMITTED,
@@ -69,6 +75,14 @@ class VerifiedWriteIntentStore(context: Context) {
     @Synchronized
     fun begin(transactionId: String, mutationLabel: String, expectedFingerprint: String, startedAt: Long = System.currentTimeMillis()): VerifiedWriteIntent {
         val intent = VerifiedWriteIntentReducer.begin(transactionId, mutationLabel, expectedFingerprint, startedAt)
+        write(intent)
+        return intent
+    }
+
+    @Synchronized
+    fun prepareTarget(targetFingerprint: String): VerifiedWriteIntent {
+        val current = requireNotNull(load()) { "Verified write intent missing" }
+        val intent = VerifiedWriteIntentReducer.prepareTarget(current, targetFingerprint)
         write(intent)
         return intent
     }
