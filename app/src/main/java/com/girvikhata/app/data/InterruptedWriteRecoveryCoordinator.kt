@@ -19,8 +19,31 @@ class InterruptedWriteRecoveryCoordinator(
         val intent = intentStore.load()
         val snapshot = records.load()
         val currentFingerprint = RelationalShadowFingerprint.sha256(snapshot)
-        val decision = InterruptedWriteRecoveryPolicy.evaluate(intent, currentFingerprint)
+        val initialDecision = InterruptedWriteRecoveryPolicy.evaluate(intent, currentFingerprint)
 
+        val finalDecision = runCatching {
+            applyDecision(initialDecision, intent, snapshot, currentFingerprint)
+            initialDecision
+        }.getOrElse { error ->
+            val blocked = InterruptedWriteRecoveryPolicy.executionFailure(intent, error)
+            record(
+                "INTERRUPTED_WRITE_RECONCILIATION_FAILED",
+                "Interrupted write recovery blocked safely",
+                "${intent?.transactionId ?: "unknown"} • ${intent?.mutationLabel ?: "unknown"} • ${blocked.reason.take(180)}",
+            )
+            blocked
+        }
+
+        statusStore.record(finalDecision, intent, currentFingerprint)
+        return finalDecision
+    }
+
+    private fun applyDecision(
+        decision: InterruptedWriteRecoveryDecision,
+        intent: VerifiedWriteIntent?,
+        snapshot: AppSnapshot,
+        currentFingerprint: String,
+    ) {
         when (decision.action) {
             InterruptedWriteRecoveryAction.NONE -> Unit
             InterruptedWriteRecoveryAction.SAFE_TO_RETRY -> {
@@ -70,9 +93,6 @@ class InterruptedWriteRecoveryCoordinator(
                 )
             }
         }
-
-        statusStore.record(decision, intent, currentFingerprint)
-        return decision
     }
 
     fun latestStatus(): InterruptedWriteRecoveryStatus? = statusStore.load()
