@@ -33,6 +33,10 @@ class VerifiedBusinessWriteCoordinator(
             validateTarget(target)
             val targetFingerprint = RelationalShadowFingerprint.sha256(target)
 
+            // Persist the target identity before touching the authoritative snapshot.
+            // A process kill can now be classified as pre-write, post-write, or unknown.
+            intentStore.prepareTarget(targetFingerprint)
+
             records.save(target)
             val persisted = records.load()
             val persistedFingerprint = RelationalShadowFingerprint.sha256(persisted)
