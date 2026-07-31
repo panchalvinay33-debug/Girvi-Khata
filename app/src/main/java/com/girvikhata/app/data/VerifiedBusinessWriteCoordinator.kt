@@ -3,15 +3,7 @@ package com.girvikhata.app.data
 import android.content.Context
 import java.util.UUID
 
-/**
- * Safety-first write coordinator.
- *
- * The encrypted snapshot remains authoritative. A write succeeds only when:
- * 1. the caller's expected fingerprint matches the latest snapshot,
- * 2. the mutation produces a valid deterministic target snapshot,
- * 3. the encrypted snapshot save/read-back succeeds,
- * 4. the relational shadow independently reconstructs the same fingerprint.
- */
+/** Safety-first authoritative snapshot write with relational verification. */
 class VerifiedBusinessWriteCoordinator(
     context: Context,
     private val records: EncryptedRecordStore = EncryptedRecordStore(context.applicationContext),
@@ -20,9 +12,15 @@ class VerifiedBusinessWriteCoordinator(
     },
     private val journal: DataSafetyJournal = DataSafetyJournal(context.applicationContext),
     private val observationStore: VerifiedWriteObservationStore = VerifiedWriteObservationStore(context.applicationContext),
+    private val intentStore: VerifiedWriteIntentStore = VerifiedWriteIntentStore(context.applicationContext),
 ) {
     @Synchronized
     fun execute(request: VerifiedBusinessWriteRequest): VerifiedBusinessWriteResult {
+        intentStore.begin(
+            transactionId = request.transactionId,
+            mutationLabel = request.mutation.auditLabel,
+            expectedFingerprint = request.expectedFingerprint,
+        )
         return try {
             val before = records.load()
             val beforeFingerprint = RelationalShadowFingerprint.sha256(before)
@@ -61,6 +59,7 @@ class VerifiedBusinessWriteCoordinator(
                 changedRows = relationalStatus.changedRows ?: 0,
                 committedAt = System.currentTimeMillis(),
             )
+            intentStore.commit(targetFingerprint, result.committedAt)
             val observation = observationStore.recordSuccess(result)
 
             runCatching {
@@ -73,6 +72,7 @@ class VerifiedBusinessWriteCoordinator(
             result
         } catch (failure: Throwable) {
             val reason = failure.message ?: failure::class.java.simpleName
+            runCatching { intentStore.fail(reason) }
             val observation = runCatching {
                 observationStore.recordFailure(request.transactionId, reason)
             }.getOrNull()
@@ -90,6 +90,10 @@ class VerifiedBusinessWriteCoordinator(
     fun currentFingerprint(): String = RelationalShadowFingerprint.sha256(records.load())
 
     fun observation(): VerifiedWriteObservation = observationStore.load()
+
+    fun latestIntent(): VerifiedWriteIntent? = intentStore.load()
+
+    fun clearResolvedIntent() = intentStore.clearCompleted()
 
     private fun validateTarget(snapshot: AppSnapshot) {
         require(snapshot.customers.map { it.id }.distinct().size == snapshot.customers.size) { "Duplicate customer ID" }
