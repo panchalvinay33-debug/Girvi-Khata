@@ -39,8 +39,6 @@ class VerifiedBusinessWriteCoordinator(
             validateTarget(target)
             val targetFingerprint = RelationalShadowFingerprint.sha256(target)
 
-            // Persist the target identity before touching the authoritative snapshot.
-            // A process kill can now be classified as pre-write, post-write, or unknown.
             intentStore.prepareTarget(targetFingerprint)
 
             records.save(target)
@@ -88,9 +86,6 @@ class VerifiedBusinessWriteCoordinator(
             }.getOrNull()
             val safelyPreCommit = InterruptedWriteRecoveryPolicy.mayMarkFailed(intent, currentFingerprint)
 
-            // Mark FAILED only when the authoritative snapshot is proven unchanged.
-            // If it reached the target or an unknown state, keep PENDING so startup recovery
-            // must verify or block before any later business write.
             if (safelyPreCommit) runCatching { intentStore.fail(reason) }
 
             val recoveryState = when {
@@ -124,6 +119,8 @@ class VerifiedBusinessWriteCoordinator(
         require(snapshot.customers.map { it.id }.distinct().size == snapshot.customers.size) { "Duplicate customer ID" }
         require(snapshot.girvis.map { it.id }.distinct().size == snapshot.girvis.size) { "Duplicate girvi ID" }
         require(snapshot.girvis.map { it.girviNumber }.distinct().size == snapshot.girvis.size) { "Duplicate girvi number" }
+        require(snapshot.categories.map { it.id }.distinct().size == snapshot.categories.size) { "Duplicate category ID" }
+        require(snapshot.categories.map { it.name.lowercase() }.distinct().size == snapshot.categories.size) { "Duplicate category name" }
         val customerIds = snapshot.customers.map { it.id }.toSet()
         require(snapshot.girvis.all { it.customerId in customerIds }) { "Girvi customer link missing" }
         snapshot.girvis.forEach { girvi ->
@@ -207,6 +204,86 @@ sealed interface VerifiedBusinessMutation {
                     require(girvi.status == "ACTIVE") { "Released girvi payment blocked" }
                     girvi.copy(payments = girvi.payments + payment)
                 }
+            })
+        }
+    }
+
+    data class ReversePayment(
+        val girviId: String,
+        val originalPaymentId: String,
+        val reversal: PaymentRecord,
+    ) : VerifiedBusinessMutation {
+        override val auditLabel: String = "PAYMENT_REVERSAL"
+
+        override fun apply(snapshot: AppSnapshot): AppSnapshot {
+            require(reversal.isReversal) { "Reversal entry required" }
+            require(reversal.reversedPaymentId == originalPaymentId) { "Reversal payment identity mismatch" }
+            require(snapshot.girvis.flatMap { it.payments }.none { it.id == reversal.id || it.receiptNumber == reversal.receiptNumber }) {
+                "Duplicate reversal or receipt"
+            }
+            return snapshot.copy(girvis = snapshot.girvis.map { girvi ->
+                if (girvi.id != girviId) girvi else {
+                    require(girvi.status == "ACTIVE") { "Released girvi reversal blocked" }
+                    val original = girvi.payments.firstOrNull { it.id == originalPaymentId && !it.isReversal }
+                        ?: error("Original payment missing")
+                    require(girvi.payments.none { it.isReversal && it.reversedPaymentId == originalPaymentId }) {
+                        "Payment already reversed"
+                    }
+                    require(reversal.amountPaise == original.amountPaise) { "Reversal amount mismatch" }
+                    require(reversal.principalPaise == original.principalPaise) { "Reversal principal mismatch" }
+                    require(reversal.interestPaise == original.interestPaise) { "Reversal interest mismatch" }
+                    require(reversal.chargesPaise == original.chargesPaise) { "Reversal charges mismatch" }
+                    girvi.copy(payments = girvi.payments + reversal)
+                }
+            })
+        }
+    }
+
+    data class ReleaseGirvi(val released: GirviRecord) : VerifiedBusinessMutation {
+        override val auditLabel: String = "GIRVI_RELEASE"
+
+        override fun apply(snapshot: AppSnapshot): AppSnapshot {
+            val current = snapshot.girvis.firstOrNull { it.id == released.id } ?: error("Girvi missing")
+            require(current.status == "ACTIVE") { "Only active girvi can be released" }
+            require(released.status == "RELEASED") { "Released status required" }
+            require(released.releasedAt != null) { "Release timestamp required" }
+            require(released.customerId == current.customerId) { "Release customer cannot change" }
+            require(released.girviNumber == current.girviNumber) { "Release girvi number cannot change" }
+            require(released.payments == current.payments) { "Release cannot alter payment ledger" }
+            require(released.principalPaise == current.principalPaise) { "Release cannot alter principal" }
+            return snapshot.copy(girvis = snapshot.girvis.map { if (it.id == released.id) released else it })
+        }
+    }
+
+    data class AddCategory(val category: CategoryRecord) : VerifiedBusinessMutation {
+        override val auditLabel: String = "CATEGORY_ADD"
+
+        override fun apply(snapshot: AppSnapshot): AppSnapshot {
+            val clean = category.name.trim()
+            require(clean.isNotBlank()) { "Category name required" }
+            require(snapshot.categories.none { it.id == category.id }) { "Duplicate category ID" }
+            require(snapshot.categories.none { it.name.equals(clean, ignoreCase = true) }) { "Duplicate category name" }
+            return snapshot.copy(categories = snapshot.categories + category.copy(name = clean))
+        }
+    }
+
+    data class SetCategoryActive(val categoryId: String, val active: Boolean) : VerifiedBusinessMutation {
+        override val auditLabel: String = if (active) "CATEGORY_ACTIVATE" else "CATEGORY_DEACTIVATE"
+
+        override fun apply(snapshot: AppSnapshot): AppSnapshot {
+            val category = snapshot.categories.firstOrNull { it.id == categoryId } ?: error("Category missing")
+            require(category.active != active) { "Category already ${if (active) "active" else "inactive"}" }
+            if (!active) {
+                val activeCategoryNames = snapshot.girvis
+                    .filter { it.status == "ACTIVE" }
+                    .flatMap { it.effectiveItems }
+                    .map { it.categoryName }
+                require(activeCategoryNames.none { it.equals(category.name, ignoreCase = true) }) {
+                    "Active girvi uses this category"
+                }
+            }
+            return snapshot.copy(categories = snapshot.categories.map {
+                if (it.id == categoryId) it.copy(active = active) else it
             })
         }
     }
