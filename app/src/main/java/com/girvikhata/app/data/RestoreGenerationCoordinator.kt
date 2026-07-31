@@ -13,6 +13,10 @@ class RestoreGenerationCoordinator(
         context.applicationContext,
         records = records,
     ),
+    private val businessRecovery: InterruptedWriteRecoveryCoordinator = InterruptedWriteRecoveryCoordinator(
+        context.applicationContext,
+        records = records,
+    ),
     private val intents: RestoreGenerationIntentStore = RestoreGenerationIntentStore(context.applicationContext),
     private val stages: RestoreGenerationStageStore = RestoreGenerationStageStore(context.applicationContext),
 ) {
@@ -76,6 +80,14 @@ class RestoreGenerationCoordinator(
         repeat(MAX_TRANSITIONS) {
             val intent = intents.load() ?: error("Restore generation metadata missing")
             require(intent.generationId == requireGenerationId) { "Restore generation changed during reconciliation" }
+
+            val writeRecovery = RestoreGenerationExecutionScope.run(intent.generationId) {
+                businessRecovery.reconcileOnStartup()
+            }
+            require(writeRecovery.action != InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY) {
+                "Restore business proof blocked: ${writeRecovery.reason}"
+            }
+
             val currentBusiness = RelationalShadowFingerprint.sha256(records.load())
             val currentMasters = MasterCatalogFingerprint.sha256(masters.load())
             val decision = RestoreGenerationPolicy.decide(intent, currentBusiness, currentMasters)
