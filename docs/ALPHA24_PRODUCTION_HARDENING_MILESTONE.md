@@ -53,12 +53,14 @@ Status: Near-final core code; signed APK intentionally blocked until the permane
 
 - Every coordinated write persists a pending transaction intent before business mutation.
 - The target snapshot fingerprint is persisted before the authoritative snapshot save begins.
-- Process interruption can therefore be classified as pre-write, post-snapshot, or unknown state.
+- Process interruption is classified as pre-write, post-snapshot, or unknown state.
 - Startup reconciliation never replaces the authoritative snapshot.
 - Pre-write interruption is marked safe to retry.
 - Post-snapshot interruption completes relational dual-read verification and observation evidence.
 - Unknown fingerprints remain blocked and create explicit recovery-required journal evidence.
-- Recovery decisions and target-intent ordering are covered by pure tests.
+- Latest recovery action, TX ID, mutation label, fingerprint and reason persist across restarts.
+- Persistent recovery status stores no customer, item, payment, PIN or passphrase data.
+- Recovery decisions, status reduction and target-intent ordering are covered by pure tests.
 
 ### Migration Status dashboard
 
@@ -80,9 +82,10 @@ This is the intended release-safety behavior: code can be tested, but no install
 1. Provision one permanent testing keystore and five GitHub repository secrets outside the public repository.
 2. Run full signed APK assembly and verify package/version/certificate/SHA-256.
 3. Run the consolidated settlement/reversal/report/backup suite on the final signed source.
-4. Perform one unified owner phone-test round including migration, restore, advanced workflows and restart recovery.
-5. Accumulate real-device coordinated-write observations after the consolidated build.
-6. Explicit owner approval before any merge to `main`.
+4. Surface persistent interrupted-write status in the owner migration/recovery UI.
+5. Perform one unified owner phone-test round including migration, restore, advanced workflows and restart recovery.
+6. Accumulate real-device coordinated-write observations after the consolidated build.
+7. Explicit owner approval before any merge to `main`.
 
 ## Deferred modules after first safe stable release
 
