@@ -7,6 +7,7 @@ class InterruptedWriteRecoveryCoordinator(
     context: Context,
     private val records: EncryptedRecordStore = EncryptedRecordStore(context.applicationContext),
     private val intentStore: VerifiedWriteIntentStore = VerifiedWriteIntentStore(context.applicationContext),
+    private val restoreIntentStore: RestoreGenerationIntentStore = RestoreGenerationIntentStore(context.applicationContext),
     private val observationStore: VerifiedWriteObservationStore = VerifiedWriteObservationStore(context.applicationContext),
     private val statusStore: InterruptedWriteRecoveryStatusStore = InterruptedWriteRecoveryStatusStore(context.applicationContext),
     private val journal: DataSafetyJournal = DataSafetyJournal(context.applicationContext),
@@ -16,9 +17,29 @@ class InterruptedWriteRecoveryCoordinator(
 ) {
     @Synchronized
     fun reconcileOnStartup(): InterruptedWriteRecoveryDecision {
-        val intent = intentStore.load()
         val snapshot = records.load()
         val currentFingerprint = RelationalShadowFingerprint.sha256(snapshot)
+        val restoreIntent = restoreIntentStore.load()
+        if (
+            restoreIntent != null &&
+            restoreIntent.phase != RestoreGenerationPhase.COMPLETED &&
+            !RestoreGenerationExecutionScope.allows(restoreIntent.generationId)
+        ) {
+            val blocked = InterruptedWriteRecoveryDecision(
+                action = InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY,
+                transactionId = restoreIntent.generationId,
+                reason = "Restore generation ${restoreIntent.phase.name.lowercase()} must reconcile before business writes",
+            )
+            statusStore.record(blocked, null, currentFingerprint)
+            record(
+                "RESTORE_GENERATION_RECOVERY_REQUIRED",
+                "Restore generation blocks business writes",
+                "${restoreIntent.generationId} • ${restoreIntent.phase.name} • ${blocked.reason}",
+            )
+            return blocked
+        }
+
+        val intent = intentStore.load()
         val initialDecision = InterruptedWriteRecoveryPolicy.evaluate(intent, currentFingerprint)
 
         val finalDecision = runCatching {
