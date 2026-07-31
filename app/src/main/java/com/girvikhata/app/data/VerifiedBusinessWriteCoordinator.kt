@@ -82,15 +82,30 @@ class VerifiedBusinessWriteCoordinator(
             result
         } catch (failure: Throwable) {
             val reason = failure.message ?: failure::class.java.simpleName
-            runCatching { intentStore.fail(reason) }
+            val intent = runCatching { intentStore.load() }.getOrNull()
+            val currentFingerprint = runCatching {
+                RelationalShadowFingerprint.sha256(records.load())
+            }.getOrNull()
+            val safelyPreCommit = InterruptedWriteRecoveryPolicy.mayMarkFailed(intent, currentFingerprint)
+
+            // Mark FAILED only when the authoritative snapshot is proven unchanged.
+            // If it reached the target or an unknown state, keep PENDING so startup recovery
+            // must verify or block before any later business write.
+            if (safelyPreCommit) runCatching { intentStore.fail(reason) }
+
+            val recoveryState = when {
+                safelyPreCommit -> "pre-commit failure"
+                currentFingerprint == intent?.targetFingerprint -> "authoritative committed; recovery pending"
+                else -> "authoritative state unknown; recovery required"
+            }
             val observation = runCatching {
-                observationStore.recordFailure(request.transactionId, reason)
+                observationStore.recordFailure(request.transactionId, "$reason • $recoveryState")
             }.getOrNull()
             runCatching {
                 journal.recordNamedEvent(
                     type = "VERIFIED_BUSINESS_WRITE_FAILED",
                     title = request.title.take(80),
-                    detail = "${request.transactionId} • ${request.mutation.auditLabel} • ${reason.take(180)} • successful ${observation?.successfulWrites ?: 0}",
+                    detail = "${request.transactionId} • ${request.mutation.auditLabel} • ${reason.take(140)} • $recoveryState • successful ${observation?.successfulWrites ?: 0}",
                 )
             }
             throw failure
