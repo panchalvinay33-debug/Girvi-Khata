@@ -2,6 +2,7 @@ package com.girvikhata.app
 
 import android.net.Uri
 import android.os.Bundle
+import android.os.StatFs
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,6 +53,10 @@ import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.RecordStoreLoadState
+import com.girvikhata.app.data.VerifiedBusinessMutation
+import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
+import com.girvikhata.app.data.VerifiedBusinessWriteRequest
+import com.girvikhata.app.data.VerifiedBusinessWriteResult
 import com.girvikhata.app.domain.MasterCatalog
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
@@ -59,6 +64,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 class RestoreActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,6 +72,7 @@ class RestoreActivity : FragmentActivity() {
         val security = SecurityPreferences(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
         val masterStore = EncryptedMasterCatalogStore(applicationContext)
+        val coordinator = VerifiedBusinessWriteCoordinator(applicationContext)
         setContent {
             MaterialTheme {
                 RestoreRoot(
@@ -84,11 +91,18 @@ class RestoreActivity : FragmentActivity() {
                         )
                     },
                     commitRestore = { preview, phrase ->
+                        ensureRestoreStorage(preview)
                         when (val current = store.loadState()) {
                             is RecordStoreLoadState.Ready -> createSafetyBackup(current.snapshot, masterStore.load(), phrase)
                             is RecordStoreLoadState.Corrupt -> quarantineDamagedPrimary()
                         }
-                        store.save(preview.snapshot)
+                        val result = coordinator.execute(
+                            VerifiedBusinessWriteRequest(
+                                expectedFingerprint = coordinator.currentFingerprint(),
+                                mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(preview.snapshot),
+                                title = "Verified backup restore ${preview.sha256.take(12)}",
+                            ),
+                        )
                         if (preview.containsPortableMasters) masterStore.save(preview.masterCatalog)
 
                         store.load().also { reloaded ->
@@ -99,6 +113,7 @@ class RestoreActivity : FragmentActivity() {
                         if (preview.containsPortableMasters) {
                             require(masterStore.load() == preview.masterCatalog) { "Restore master catalog verification failed" }
                         }
+                        result
                     },
                     close = ::finish,
                 )
@@ -112,6 +127,15 @@ class RestoreActivity : FragmentActivity() {
         require(bytes.isNotEmpty()) { "Backup file empty hai" }
         require(bytes.size <= 128 * 1024 * 1024) { "Backup file bahut badi hai" }
         return bytes
+    }
+
+    private fun ensureRestoreStorage(preview: RestorePreview) {
+        val estimatedBytes = PortableAppBundleCodec.encode(preview.snapshot, preview.masterCatalog).size.toLong()
+        val requiredBytes = max(64L * 1024L * 1024L, estimatedBytes * 3L)
+        val availableBytes = StatFs(filesDir.absolutePath).availableBytes
+        require(availableBytes >= requiredBytes) {
+            "Restore ke liye storage kam hai. Required ${requiredBytes / (1024 * 1024)} MB, available ${availableBytes / (1024 * 1024)} MB"
+        }
     }
 
     private fun createSafetyBackup(current: AppSnapshot, masters: MasterCatalog, phrase: String) {
@@ -157,7 +181,7 @@ private fun RestoreRoot(
     verifyPin: (String) -> PinVerificationResult,
     readPackage: (Uri) -> ByteArray,
     decryptPreview: (ByteArray, String) -> RestorePreview,
-    commitRestore: (RestorePreview, String) -> Unit,
+    commitRestore: (RestorePreview, String) -> VerifiedBusinessWriteResult,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
@@ -166,12 +190,18 @@ private fun RestoreRoot(
 }
 
 @Composable
-private fun RestorePinScreen(verifyPin: (String) -> PinVerificationResult, success: () -> Unit, close: () -> Unit) {
+private fun RestorePinScreen(
+    verifyPin: (String) -> PinVerificationResult,
+    success: () -> Unit,
+    close: () -> Unit,
+) {
     var pin by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("Restore ke liye PIN verify karein") }
     RestorePanel("Encrypted Restore", message, Icons.Default.Security) {
         OutlinedTextField(
-            pin, { pin = it.filter(Char::isDigit).take(6) }, label = { Text("6-digit PIN") },
+            pin,
+            { pin = it.filter(Char::isDigit).take(6) },
+            label = { Text("6-digit PIN") },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             modifier = Modifier.fillMaxWidth(),
@@ -185,7 +215,9 @@ private fun RestorePinScreen(verifyPin: (String) -> PinVerificationResult, succe
                     is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
                 }
                 pin = ""
-            }, enabled = pin.length == 6, modifier = Modifier.fillMaxWidth(),
+            },
+            enabled = pin.length == 6,
+            modifier = Modifier.fillMaxWidth(),
         ) { Text("PIN Verify") }
         OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
@@ -195,7 +227,7 @@ private fun RestorePinScreen(verifyPin: (String) -> PinVerificationResult, succe
 private fun RestoreWizard(
     readPackage: (Uri) -> ByteArray,
     decryptPreview: (ByteArray, String) -> RestorePreview,
-    commitRestore: (RestorePreview, String) -> Unit,
+    commitRestore: (RestorePreview, String) -> VerifiedBusinessWriteResult,
     close: () -> Unit,
 ) {
     var packageBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -207,23 +239,46 @@ private fun RestoreWizard(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         preview = null
         restored = false
-        if (uri != null) runCatching { readPackage(uri) }
-            .onSuccess { packageBytes = it; selectedName = uri.lastPathSegment ?: "Selected .gkb file"; message = "File selected. Recovery passphrase daalein." }
-            .onFailure { message = it.message ?: "Backup file read nahi hui" }
+        if (uri != null) {
+            runCatching { readPackage(uri) }
+                .onSuccess {
+                    packageBytes = it
+                    selectedName = uri.lastPathSegment ?: "Selected .gkb file"
+                    message = "File selected. Recovery passphrase daalein."
+                }
+                .onFailure { message = it.message ?: "Backup file read nahi hui" }
+        }
     }
 
     RestorePanel("Verified Backup Restore", message, Icons.Default.Restore) {
         Text("New backup business + masters restore karegi. Legacy backup business restore karke current masters preserve karegi.", color = Color.Gray)
-        OutlinedButton(onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Backup File Choose Karein") }
+        OutlinedButton(
+            onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Backup File Choose Karein") }
         Text(selectedName, color = Color.Gray, fontSize = 12.sp)
-        OutlinedTextField(phrase, { phrase = it }, label = { Text("Recovery passphrase") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            phrase,
+            { phrase = it },
+            label = { Text("Recovery passphrase") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Button(
             onClick = {
                 val bytes = packageBytes ?: return@Button
                 runCatching { decryptPreview(bytes, phrase) }
-                    .onSuccess { preview = it; message = "Backup verified. Counts check karke confirm karein." }
-                    .onFailure { preview = null; message = it.message ?: "Backup verify nahi hua" }
-            }, enabled = packageBytes != null && phrase.length >= 12 && !restored, modifier = Modifier.fillMaxWidth(),
+                    .onSuccess {
+                        preview = it
+                        message = "Backup verified. Counts check karke confirm karein."
+                    }
+                    .onFailure {
+                        preview = null
+                        message = it.message ?: "Backup verify nahi hua"
+                    }
+            },
+            enabled = packageBytes != null && phrase.length >= 12 && !restored,
+            modifier = Modifier.fillMaxWidth(),
         ) { Text("Decrypt & Verify Preview") }
 
         preview?.let { data ->
@@ -241,19 +296,30 @@ private fun RestoreWizard(
             Button(
                 onClick = {
                     runCatching { commitRestore(data, phrase) }
-                        .onSuccess { restored = true; phrase = ""; message = "Restore successful. Main app mein Dobara Check Karein dabayein." }
+                        .onSuccess { result ->
+                            restored = true
+                            phrase = ""
+                            message = "Restore successful • TX ${result.transactionId.take(8)}. Main app dobara check karein."
+                        }
                         .onFailure { message = it.message ?: "Restore commit failed" }
-                }, enabled = !restored, modifier = Modifier.fillMaxWidth(),
+                },
+                enabled = !restored,
+                modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E)),
             ) { Text("CONFIRM: Current Data Replace Karein") }
         }
-        if (restored) Text("✓ Restore complete", color = Color(0xFF138A4A), fontWeight = FontWeight.Bold)
+        if (restored) Text("✓ Verified restore complete", color = Color(0xFF138A4A), fontWeight = FontWeight.Bold)
         OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
 
 @Composable
-private fun RestorePanel(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable () -> Unit) {
+private fun RestorePanel(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    content: @Composable () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().background(Color(0xFFF6F7FB)).verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -264,7 +330,11 @@ private fun RestorePanel(title: String, subtitle: String, icon: androidx.compose
         Text(title, fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color(0xFF171752))
         Text(subtitle, color = Color.Gray)
         Spacer(Modifier.height(18.dp))
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+        ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
         }
     }
