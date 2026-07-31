@@ -43,6 +43,12 @@ object InterruptedWriteRecoveryPolicy {
         )
     }
 
+    fun mayMarkFailed(intent: VerifiedWriteIntent?, currentSnapshotFingerprint: String?): Boolean =
+        intent != null &&
+            intent.state == VerifiedWriteIntentState.PENDING &&
+            currentSnapshotFingerprint != null &&
+            currentSnapshotFingerprint == intent.expectedFingerprint
+
     fun executionFailure(intent: VerifiedWriteIntent?, cause: Throwable): InterruptedWriteRecoveryDecision {
         val detail = cause.message?.takeIf { it.isNotBlank() } ?: cause::class.java.simpleName
         return InterruptedWriteRecoveryDecision(
