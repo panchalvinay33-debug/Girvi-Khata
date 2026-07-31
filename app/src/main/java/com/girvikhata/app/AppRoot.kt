@@ -64,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -71,10 +72,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.CategoryRecord
+import com.girvikhata.app.data.ClassicVerifiedWriteGateway
 import com.girvikhata.app.data.CustomerRecord
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.GirviItemRecord
 import com.girvikhata.app.data.GirviRecord
+import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
 import com.girvikhata.app.domain.CategoryRules
 import com.girvikhata.app.domain.CustomerCandidate
 import com.girvikhata.app.domain.CustomerMatcher
@@ -109,6 +112,13 @@ fun GirviKhataRoot(
     lockSignal: Int,
     requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
 ) {
+    val applicationContext = LocalContext.current.applicationContext
+    val verifiedGateway = remember(recordStore, applicationContext) {
+        ClassicVerifiedWriteGateway(
+            records = recordStore,
+            coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = recordStore),
+        )
+    }
     var session by remember { mutableStateOf(if (securityPreferences.hasPin()) SessionState.LOCKED else SessionState.ENROLL_PIN) }
     var snapshot by remember { mutableStateOf(recordStore.load()) }
 
@@ -117,8 +127,7 @@ fun GirviKhataRoot(
     }
 
     fun persist(next: AppSnapshot) {
-        recordStore.save(next)
-        snapshot = next
+        snapshot = verifiedGateway.persist(snapshot, next)
     }
 
     when (session) {
