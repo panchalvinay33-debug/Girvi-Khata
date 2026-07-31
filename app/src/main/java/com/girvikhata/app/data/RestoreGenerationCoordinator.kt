@@ -83,14 +83,15 @@ class RestoreGenerationCoordinator(
             when (decision.action) {
                 RestoreGenerationRecoveryAction.ACTIVATE_BUSINESS -> {
                     val staged = loadVerifiedStage(intent)
-                    businessWrites.execute(
-                        VerifiedBusinessWriteRequest(
-                            expectedFingerprint = currentBusiness,
-                            mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(staged.snapshot),
-                            title = "Restore generation ${intent.generationId.take(12)} business activation",
-                            restoreGenerationId = intent.generationId,
-                        ),
-                    )
+                    RestoreGenerationExecutionScope.run(intent.generationId) {
+                        businessWrites.execute(
+                            VerifiedBusinessWriteRequest(
+                                expectedFingerprint = currentBusiness,
+                                mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(staged.snapshot),
+                                title = "Restore generation ${intent.generationId.take(12)} business activation",
+                            ),
+                        )
+                    }
                     intents.transition(intent, RestoreGenerationPhase.BUSINESS_ACTIVATED, decision.reason)
                 }
 
