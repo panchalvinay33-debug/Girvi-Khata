@@ -5,6 +5,7 @@ import android.app.Application
 import android.os.Bundle
 import android.view.WindowManager
 import com.girvikhata.app.data.BusinessCommitObserver
+import com.girvikhata.app.data.InterruptedWriteRecoveryCoordinator
 
 /** Central privacy policy plus process-lifetime verified business-commit observer. */
 class GirviKhataApplication : Application(), Application.ActivityLifecycleCallbacks {
@@ -13,6 +14,11 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
+
+        // Non-destructive reconciliation only: it never replaces the authoritative snapshot.
+        // Unknown fingerprint states remain blocked and are journaled for explicit recovery.
+        runCatching { InterruptedWriteRecoveryCoordinator(this).reconcileOnStartup() }
+
         commitObserver = BusinessCommitObserver(this).also { it.start() }
     }
 
