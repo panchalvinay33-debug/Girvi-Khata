@@ -1,7 +1,7 @@
 # Alpha 24 — Production Hardening Milestone
 
 Date: 2026-07-31
-Status: Core code and unit-test compilation verified; signed APK intentionally blocked until the permanent testing identity is provisioned.
+Status: Near-final core code; signed APK intentionally blocked until the permanent testing identity is provisioned.
 
 ## Stable references
 
@@ -43,10 +43,22 @@ Status: Core code and unit-test compilation verified; signed APK intentionally b
 
 - Restore still creates a verified pre-restore safety backup or quarantines a damaged primary.
 - Restore enforces at least 64 MB free space or three times the estimated portable bundle size, whichever is larger.
+- Restore storage policy is pure and covered by boundary tests.
 - Business snapshot replacement uses `ReplaceSnapshotForRestore` through `VerifiedBusinessWriteCoordinator`.
 - Authoritative snapshot read-back and relational dual-read proof are mandatory.
 - Portable Business Masters retain independent encrypted save/read-back verification.
 - Restore success shows the coordinated transaction ID.
+
+### Interrupted-write recovery
+
+- Every coordinated write persists a pending transaction intent before business mutation.
+- The target snapshot fingerprint is persisted before the authoritative snapshot save begins.
+- Process interruption can therefore be classified as pre-write, post-snapshot, or unknown state.
+- Startup reconciliation never replaces the authoritative snapshot.
+- Pre-write interruption is marked safe to retry.
+- Post-snapshot interruption completes relational dual-read verification and observation evidence.
+- Unknown fingerprints remain blocked and create explicit recovery-required journal evidence.
+- Recovery decisions and target-intent ordering are covered by pure tests.
 
 ### Migration Status dashboard
 
@@ -59,7 +71,7 @@ Status: Core code and unit-test compilation verified; signed APK intentionally b
 
 ## Verification evidence
 
-Latest Alpha 24 source ran the full unit-test task successfully. The signing step then failed closed because the permanent repository secrets are not yet provisioned. APK assembly and upload were correctly skipped. Security Guard passed.
+Alpha 24 source repeatedly completed the full unit-test task successfully. The signing step then failed closed because permanent repository secrets are not yet provisioned. APK assembly and upload were correctly skipped. Security Guard passed.
 
 This is the intended release-safety behavior: code can be tested, but no installable artifact can be promoted under an unknown or changing certificate.
 
@@ -67,10 +79,10 @@ This is the intended release-safety behavior: code can be tested, but no install
 
 1. Provision one permanent testing keystore and five GitHub repository secrets outside the public repository.
 2. Run full signed APK assembly and verify package/version/certificate/SHA-256.
-3. Add focused restore storage-policy tests and process-interruption recovery coverage.
-4. Complete settlement/reversal/report/backup consolidated regression run on the signed source.
+3. Run the consolidated settlement/reversal/report/backup suite on the final signed source.
+4. Perform one unified owner phone-test round including migration, restore, advanced workflows and restart recovery.
 5. Accumulate real-device coordinated-write observations after the consolidated build.
-6. Perform one final owner phone-test round only after all technical gates are green.
+6. Explicit owner approval before any merge to `main`.
 
 ## Deferred modules after first safe stable release
 
