@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: android-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
@@ -48,6 +52,12 @@ jobs:
         run: |
           set -o pipefail
           gradle --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
+
+      - name: Verify Android compilation
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon compileDebugKotlin --stacktrace 2>&1 | tee compile-debug.log
 
       - name: Restore pinned testing signing identity
         shell: bash
@@ -131,6 +141,7 @@ jobs:
           name: android-build-diagnostics
           path: |
             unit-test.log
+            compile-debug.log
             apk-build.log
             app/build/reports/tests/
           if-no-files-found: warn
