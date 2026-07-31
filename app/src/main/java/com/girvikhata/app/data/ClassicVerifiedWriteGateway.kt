@@ -5,19 +5,27 @@ package com.girvikhata.app.data
  * Every accepted change is first classified into a typed mutation and then executed by the
  * verified coordinator. The authoritative snapshot is always reloaded after success.
  */
-class ClassicVerifiedWriteGateway(
-    private val records: EncryptedRecordStore,
-    private val coordinator: VerifiedBusinessWriteCoordinator,
+class ClassicVerifiedWriteGateway internal constructor(
+    private val reloadAuthoritative: () -> AppSnapshot,
+    private val executeVerified: (VerifiedBusinessWriteRequest) -> Unit,
 ) {
+    constructor(
+        records: EncryptedRecordStore,
+        coordinator: VerifiedBusinessWriteCoordinator,
+    ) : this(
+        reloadAuthoritative = records::load,
+        executeVerified = { request -> coordinator.execute(request) },
+    )
+
     fun persist(screenSnapshot: AppSnapshot, nextSnapshot: AppSnapshot): AppSnapshot {
         val classified = ClassicSnapshotMutationClassifier.classify(screenSnapshot, nextSnapshot)
-        coordinator.execute(
+        executeVerified(
             VerifiedBusinessWriteRequest(
                 expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
                 mutation = classified.mutation,
                 title = classified.title,
             ),
         )
-        return records.load()
+        return reloadAuthoritative()
     }
 }
