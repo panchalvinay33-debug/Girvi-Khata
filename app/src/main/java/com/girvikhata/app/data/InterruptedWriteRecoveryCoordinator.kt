@@ -2,15 +2,13 @@ package com.girvikhata.app.data
 
 import android.content.Context
 
-/**
- * Non-destructive process-start reconciliation for an interrupted coordinated write.
- * The authoritative snapshot is never replaced here.
- */
+/** Non-destructive startup reconciliation for interrupted coordinated writes. */
 class InterruptedWriteRecoveryCoordinator(
     context: Context,
     private val records: EncryptedRecordStore = EncryptedRecordStore(context.applicationContext),
     private val intentStore: VerifiedWriteIntentStore = VerifiedWriteIntentStore(context.applicationContext),
     private val observationStore: VerifiedWriteObservationStore = VerifiedWriteObservationStore(context.applicationContext),
+    private val statusStore: InterruptedWriteRecoveryStatusStore = InterruptedWriteRecoveryStatusStore(context.applicationContext),
     private val journal: DataSafetyJournal = DataSafetyJournal(context.applicationContext),
     private val shadowFactory: () -> EncryptedRelationalShadowStore = {
         EncryptedRelationalShadowStore(context.applicationContext)
@@ -31,9 +29,9 @@ class InterruptedWriteRecoveryCoordinator(
                 intentStore.fail(reason)
                 observationStore.recordFailure(tx.transactionId, reason)
                 record(
-                    type = "INTERRUPTED_WRITE_SAFE_TO_RETRY",
-                    title = "Interrupted write did not commit",
-                    detail = "${tx.transactionId} • ${tx.mutationLabel} • ${currentFingerprint.take(12)}",
+                    "INTERRUPTED_WRITE_SAFE_TO_RETRY",
+                    "Interrupted write did not commit",
+                    "${tx.transactionId} • ${tx.mutationLabel} • ${currentFingerprint.take(12)}",
                 )
             }
             InterruptedWriteRecoveryAction.VERIFY_RELATIONAL_AND_COMPLETE -> {
@@ -59,22 +57,25 @@ class InterruptedWriteRecoveryCoordinator(
                     ),
                 )
                 record(
-                    type = "INTERRUPTED_WRITE_COMPLETED",
-                    title = "Interrupted write proof completed",
-                    detail = "${tx.transactionId} • ${tx.mutationLabel} • ${currentFingerprint.take(12)} • ${status.syncMode ?: "SYNC"}",
+                    "INTERRUPTED_WRITE_COMPLETED",
+                    "Interrupted write proof completed",
+                    "${tx.transactionId} • ${tx.mutationLabel} • ${currentFingerprint.take(12)} • ${status.syncMode ?: "SYNC"}",
                 )
             }
             InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY -> {
-                val tx = intent
                 record(
-                    type = "INTERRUPTED_WRITE_RECOVERY_REQUIRED",
-                    title = "Interrupted write needs recovery",
-                    detail = "${tx?.transactionId ?: "unknown"} • ${tx?.mutationLabel ?: "unknown"} • ${decision.reason.take(180)}",
+                    "INTERRUPTED_WRITE_RECOVERY_REQUIRED",
+                    "Interrupted write needs recovery",
+                    "${intent?.transactionId ?: "unknown"} • ${intent?.mutationLabel ?: "unknown"} • ${decision.reason.take(180)}",
                 )
             }
         }
+
+        statusStore.record(decision, intent, currentFingerprint)
         return decision
     }
+
+    fun latestStatus(): InterruptedWriteRecoveryStatus? = statusStore.load()
 
     private fun record(type: String, title: String, detail: String) {
         runCatching { journal.recordNamedEvent(type, title, detail) }
