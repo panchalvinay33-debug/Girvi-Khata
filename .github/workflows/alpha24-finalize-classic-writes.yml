@@ -1,0 +1,196 @@
+name: Alpha24 Finalize Classic Writes
+
+on:
+  push:
+    branches: [agent/alpha24-production-hardening]
+    paths:
+      - '.github/workflows/alpha24-finalize-classic-writes.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/alpha24-production-hardening
+          fetch-depth: 0
+
+      - name: Apply exact fail-closed patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} exact matches, found {count}")
+              p.write_text(text.replace(old, new))
+
+          app = 'app/src/main/java/com/girvikhata/app/AppRoot.kt'
+          replace_exact(
+              app,
+              'import androidx.compose.ui.graphics.vector.ImageVector\n',
+              'import androidx.compose.ui.graphics.vector.ImageVector\nimport androidx.compose.ui.platform.LocalContext\n',
+          )
+          replace_exact(
+              app,
+              'import com.girvikhata.app.data.CategoryRecord\n',
+              'import com.girvikhata.app.data.CategoryRecord\nimport com.girvikhata.app.data.ClassicVerifiedWriteGateway\n',
+          )
+          replace_exact(
+              app,
+              'import com.girvikhata.app.data.GirviRecord\n',
+              'import com.girvikhata.app.data.GirviRecord\nimport com.girvikhata.app.data.VerifiedBusinessWriteCoordinator\n',
+          )
+          replace_exact(
+              app,
+              '    var session by remember { mutableStateOf(if (securityPreferences.hasPin()) SessionState.LOCKED else SessionState.ENROLL_PIN) }\n    var snapshot by remember { mutableStateOf(recordStore.load()) }\n',
+              '    val applicationContext = LocalContext.current.applicationContext\n    val verifiedGateway = remember(recordStore, applicationContext) {\n        ClassicVerifiedWriteGateway(\n            records = recordStore,\n            coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = recordStore),\n        )\n    }\n    var session by remember { mutableStateOf(if (securityPreferences.hasPin()) SessionState.LOCKED else SessionState.ENROLL_PIN) }\n    var snapshot by remember { mutableStateOf(recordStore.load()) }\n',
+          )
+          replace_exact(
+              app,
+              '    fun persist(next: AppSnapshot) {\n        recordStore.save(next)\n        snapshot = next\n    }\n',
+              '    fun persist(next: AppSnapshot) {\n        snapshot = verifiedGateway.persist(snapshot, next)\n    }\n',
+          )
+
+          owner = 'app/src/main/java/com/girvikhata/app/OwnerSettingsActivity.kt'
+          replace_exact(
+              owner,
+              'import com.girvikhata.app.data.EncryptedRecordStore\n',
+              'import com.girvikhata.app.data.EncryptedRecordStore\nimport com.girvikhata.app.data.RelationalShadowFingerprint\nimport com.girvikhata.app.data.RenameCategoryMutation\nimport com.girvikhata.app.data.ReorderCategoryMutation\n',
+          )
+          replace_exact(
+              owner,
+              'import com.girvikhata.app.domain.CategorySettingsOperations\n',
+              '',
+          )
+          replace_exact(
+              owner,
+              '''                fun commitCategorySnapshot(updated: AppSnapshot, title: String) {
+                    if (updated == snapshot) return
+                    coordinator.execute(
+                        VerifiedBusinessWriteRequest(
+                            expectedFingerprint = coordinator.currentFingerprint(),
+                            mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(updated),
+                            title = title,
+                        ),
+                    )
+                    snapshot = store.load()
+                }
+''',
+              '''                fun commitCategoryMutation(mutation: VerifiedBusinessMutation, title: String) {
+                    coordinator.execute(
+                        VerifiedBusinessWriteRequest(
+                            expectedFingerprint = RelationalShadowFingerprint.sha256(snapshot),
+                            mutation = mutation,
+                            title = title,
+                        ),
+                    )
+                    snapshot = store.load()
+                }
+''',
+          )
+          replace_exact(
+              owner,
+              '''                    renameCategory = { id, name ->
+                        commitCategorySnapshot(
+                            CategorySettingsOperations.rename(snapshot, id, name),
+                            "Owner category rename",
+                        )
+                    },
+                    moveCategory = { id, direction ->
+                        commitCategorySnapshot(
+                            CategorySettingsOperations.move(snapshot, id, direction),
+                            "Owner category reorder",
+                        )
+                    },
+''',
+              '''                    renameCategory = { id, name ->
+                        commitCategoryMutation(
+                            RenameCategoryMutation(id, name),
+                            "Owner category rename",
+                        )
+                    },
+                    moveCategory = { id, direction ->
+                        commitCategoryMutation(
+                            ReorderCategoryMutation(id, direction),
+                            "Owner category reorder",
+                        )
+                    },
+''',
+          )
+
+          guard = '.github/workflows/security-guard.yml'
+          replace_exact(
+              guard,
+              '''      - name: Pin legacy classic write exception
+        shell: bash
+        run: |
+          set -euo pipefail
+          classic='app/src/main/java/com/girvikhata/app/AppRoot.kt'
+          count=$(grep -Ec 'recordStore\\.save\\(next\\)' "$classic" || true)
+          if [ "$count" -ne 1 ]; then
+            echo "Expected exactly one tracked AppRoot legacy write for issue #9; found $count."
+            exit 1
+          fi
+
+''',
+              '''      - name: Reject classic direct authoritative writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          classic='app/src/main/java/com/girvikhata/app/AppRoot.kt'
+          violations=$(grep -nE '\\b(store|records|recordStore)\\.save\\(' "$classic" || true)
+          if [ -n "$violations" ]; then
+            echo 'Classic AppRoot direct authoritative writes are forbidden:'
+            echo "$violations"
+            exit 1
+          fi
+
+''',
+          )
+          replace_exact(
+              guard,
+              "            --exclude='AppRoot.kt' \\\n",
+              '',
+          )
+
+          Path('.github/workflows/alpha24-finalize-classic-writes.yml').unlink()
+          PY
+
+      - name: Verify direct writes removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RInE '\b(store|records|recordStore)\.save\(' app/src/main/java/com/girvikhata/app \
+            --include='*.kt' --exclude-dir='data' --exclude='MasterCatalogActivity.kt'
+          ! grep -n 'ReplaceSnapshotForRestore' app/src/main/java/com/girvikhata/app/OwnerSettingsActivity.kt
+
+      - name: Run unit tests and compile
+        shell: bash
+        env:
+          GRADLE_OPTS: -Dorg.gradle.vfs.watch=false
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --no-watch-fs :app:testDebugUnitTest :app:compileDebugKotlin
+
+      - name: Commit finalized migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'alpha24-hardening-bot'
+          git config user.email 'alpha24-hardening-bot@users.noreply.github.com'
+          git add app/src/main/java/com/girvikhata/app/AppRoot.kt \
+                  app/src/main/java/com/girvikhata/app/OwnerSettingsActivity.kt \
+                  .github/workflows/security-guard.yml \
+                  .github/workflows/alpha24-finalize-classic-writes.yml
+          git commit -m 'fix: complete verified classic write migration'
+          git push origin HEAD:agent/alpha24-production-hardening
