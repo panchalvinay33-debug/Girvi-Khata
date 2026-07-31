@@ -41,18 +41,7 @@ jobs:
             exit 1
           fi
 
-      - name: Pin legacy classic write exception
-        shell: bash
-        run: |
-          set -euo pipefail
-          classic='app/src/main/java/com/girvikhata/app/AppRoot.kt'
-          count=$(grep -Ec 'recordStore\.save\(next\)' "$classic" || true)
-          if [ "$count" -ne 1 ]; then
-            echo "Expected exactly one tracked AppRoot legacy write for issue #9; found $count."
-            exit 1
-          fi
-
-      - name: Reject other direct authoritative UI writes
+      - name: Reject direct authoritative UI writes
         shell: bash
         run: |
           set -euo pipefail
@@ -60,12 +49,25 @@ jobs:
           violations=$(grep -RInE '\b(store|records|recordStore)\.save\(' "$ui_root" \
             --include='*.kt' \
             --exclude-dir='data' \
-            --exclude='AppRoot.kt' \
             --exclude='MasterCatalogActivity.kt' || true)
           if [ -n "$violations" ]; then
             echo 'Unexpected direct authoritative UI writes found:'
             echo "$violations"
             echo 'Route business mutations through VerifiedBusinessWriteCoordinator.'
+            exit 1
+          fi
+
+      - name: Reject restore mutation outside restore flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          violations=$(grep -RIn 'ReplaceSnapshotForRestore' app/src/main/java/com/girvikhata/app \
+            --include='*.kt' \
+            --exclude-dir='data' \
+            --exclude='RestoreActivity.kt' || true)
+          if [ -n "$violations" ]; then
+            echo 'Restore mutation used by a normal UI flow:'
+            echo "$violations"
             exit 1
           fi
 
