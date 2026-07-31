@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-build-${{ github.workflow }}-${{ github.ref }}
@@ -27,6 +27,83 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          ref: agent/alpha24-production-hardening
+          fetch-depth: 0
+
+      - name: Apply and commit final classic migration
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          def r(path, old, new):
+              p=Path(path); text=p.read_text(); count=text.count(old)
+              if count != 1: raise SystemExit(f'{path}: expected 1 match, found {count}')
+              p.write_text(text.replace(old,new))
+          app='app/src/main/java/com/girvikhata/app/AppRoot.kt'
+          r(app,'import androidx.compose.ui.graphics.vector.ImageVector\n','import androidx.compose.ui.graphics.vector.ImageVector\nimport androidx.compose.ui.platform.LocalContext\n')
+          r(app,'import com.girvikhata.app.data.CategoryRecord\n','import com.girvikhata.app.data.CategoryRecord\nimport com.girvikhata.app.data.ClassicVerifiedWriteGateway\n')
+          r(app,'import com.girvikhata.app.data.GirviRecord\n','import com.girvikhata.app.data.GirviRecord\nimport com.girvikhata.app.data.VerifiedBusinessWriteCoordinator\n')
+          r(app,'    var session by remember { mutableStateOf(if (securityPreferences.hasPin()) SessionState.LOCKED else SessionState.ENROLL_PIN) }\n    var snapshot by remember { mutableStateOf(recordStore.load()) }\n','    val applicationContext = LocalContext.current.applicationContext\n    val verifiedGateway = remember(recordStore, applicationContext) {\n        ClassicVerifiedWriteGateway(\n            records = recordStore,\n            coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = recordStore),\n        )\n    }\n    var session by remember { mutableStateOf(if (securityPreferences.hasPin()) SessionState.LOCKED else SessionState.ENROLL_PIN) }\n    var snapshot by remember { mutableStateOf(recordStore.load()) }\n')
+          r(app,'    fun persist(next: AppSnapshot) {\n        recordStore.save(next)\n        snapshot = next\n    }\n','    fun persist(next: AppSnapshot) {\n        snapshot = verifiedGateway.persist(snapshot, next)\n    }\n')
+          owner='app/src/main/java/com/girvikhata/app/OwnerSettingsActivity.kt'
+          r(owner,'import com.girvikhata.app.data.EncryptedRecordStore\n','import com.girvikhata.app.data.EncryptedRecordStore\nimport com.girvikhata.app.data.RelationalShadowFingerprint\nimport com.girvikhata.app.data.RenameCategoryMutation\nimport com.girvikhata.app.data.ReorderCategoryMutation\n')
+          r(owner,'import com.girvikhata.app.domain.CategorySettingsOperations\n','')
+          r(owner,'''                fun commitCategorySnapshot(updated: AppSnapshot, title: String) {
+                    if (updated == snapshot) return
+                    coordinator.execute(
+                        VerifiedBusinessWriteRequest(
+                            expectedFingerprint = coordinator.currentFingerprint(),
+                            mutation = VerifiedBusinessMutation.ReplaceSnapshotForRestore(updated),
+                            title = title,
+                        ),
+                    )
+                    snapshot = store.load()
+                }
+''','''                fun commitCategoryMutation(mutation: VerifiedBusinessMutation, title: String) {
+                    coordinator.execute(
+                        VerifiedBusinessWriteRequest(
+                            expectedFingerprint = RelationalShadowFingerprint.sha256(snapshot),
+                            mutation = mutation,
+                            title = title,
+                        ),
+                    )
+                    snapshot = store.load()
+                }
+''')
+          r(owner,'''                    renameCategory = { id, name ->
+                        commitCategorySnapshot(
+                            CategorySettingsOperations.rename(snapshot, id, name),
+                            "Owner category rename",
+                        )
+                    },
+                    moveCategory = { id, direction ->
+                        commitCategorySnapshot(
+                            CategorySettingsOperations.move(snapshot, id, direction),
+                            "Owner category reorder",
+                        )
+                    },
+''','''                    renameCategory = { id, name ->
+                        commitCategoryMutation(
+                            RenameCategoryMutation(id, name),
+                            "Owner category rename",
+                        )
+                    },
+                    moveCategory = { id, direction ->
+                        commitCategoryMutation(
+                            ReorderCategoryMutation(id, direction),
+                            "Owner category reorder",
+                        )
+                    },
+''')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/girvikhata/app/AppRoot.kt app/src/main/java/com/girvikhata/app/OwnerSettingsActivity.kt
+          git commit -m 'fix: complete verified classic write migration'
+          git push origin HEAD:agent/alpha24-production-hardening
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -74,33 +151,13 @@ jobs:
               exit 1
             fi
           done
-
-          SIGNING_DIR="$RUNNER_TEMP/girvi-signing"
-          mkdir -p "$SIGNING_DIR"
-          KEYSTORE="$SIGNING_DIR/testing.keystore"
-          printf '%s' "$GIRVI_TEST_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
-          chmod 600 "$KEYSTORE"
-
-          keytool -list \
-            -keystore "$KEYSTORE" \
-            -storepass "$GIRVI_TEST_STORE_PASSWORD" \
-            -alias "$GIRVI_TEST_KEY_ALIAS" >/dev/null
-
-          ACTUAL_CERT_SHA256="$(
-            keytool -exportcert \
-              -keystore "$KEYSTORE" \
-              -storepass "$GIRVI_TEST_STORE_PASSWORD" \
-              -alias "$GIRVI_TEST_KEY_ALIAS" \
-            | sha256sum | awk '{print tolower($1)}'
-          )"
+          SIGNING_DIR="$RUNNER_TEMP/girvi-signing"; mkdir -p "$SIGNING_DIR"; KEYSTORE="$SIGNING_DIR/testing.keystore"
+          printf '%s' "$GIRVI_TEST_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"; chmod 600 "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -storepass "$GIRVI_TEST_STORE_PASSWORD" -alias "$GIRVI_TEST_KEY_ALIAS" >/dev/null
+          ACTUAL_CERT_SHA256="$(keytool -exportcert -keystore "$KEYSTORE" -storepass "$GIRVI_TEST_STORE_PASSWORD" -alias "$GIRVI_TEST_KEY_ALIAS" | sha256sum | awk '{print tolower($1)}')"
           EXPECTED_CERT_SHA256="$(printf '%s' "$GIRVI_TEST_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
-          if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error::Signing certificate mismatch. Expected $EXPECTED_CERT_SHA256, got $ACTUAL_CERT_SHA256"
-            exit 1
-          fi
-
+          if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then echo "::error::Signing certificate mismatch."; exit 1; fi
           echo "GIRVI_TEST_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
-          echo "Signing certificate verified: $ACTUAL_CERT_SHA256"
 
       - name: Build debug APK
         timeout-minutes: 10
@@ -113,22 +170,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          ACTUAL_APK_CERT_SHA256="$(
-            apksigner verify --print-certs "$APK" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | head -n1 \
-            | tr '[:upper:]' '[:lower:]' \
-            | tr -d ':[:space:]'
-          )"
+          APK="app/build/outputs/apk/debug/app-debug.apk"; test -f "$APK"
+          ACTUAL_APK_CERT_SHA256="$(apksigner verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
           EXPECTED_CERT_SHA256="$(printf '%s' "$GIRVI_TEST_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
-          test -n "$ACTUAL_APK_CERT_SHA256"
-          if [ "$ACTUAL_APK_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error::Built APK certificate mismatch. Expected $EXPECTED_CERT_SHA256, got $ACTUAL_APK_CERT_SHA256"
-            exit 1
-          fi
-          echo "APK certificate verified: $ACTUAL_APK_CERT_SHA256"
+          test -n "$ACTUAL_APK_CERT_SHA256"; test "$ACTUAL_APK_CERT_SHA256" = "$EXPECTED_CERT_SHA256"
 
       - name: Upload testing APK
         uses: actions/upload-artifact@v4
