@@ -99,6 +99,35 @@ class ClassicSnapshotMutationClassifierTest {
     }
 
     @Test
+    fun `category rename with linked girvi update is classified`() {
+        val category = CategoryRecord(id = "cat1", name = "Jewellery")
+        val before = AppSnapshot(
+            customers = listOf(customer),
+            categories = listOf(category),
+            girvis = listOf(girvi),
+        )
+        val next = RenameCategoryMutation(category.id, "Gold").apply(before)
+
+        val classified = ClassicSnapshotMutationClassifier.classify(before, next)
+
+        assertTrue(classified.mutation is RenameCategoryMutation)
+        assertEquals("CATEGORY_RENAME", classified.mutation.auditLabel)
+    }
+
+    @Test
+    fun `adjacent category reorder is classified`() {
+        val first = CategoryRecord(id = "cat1", name = "Gold")
+        val second = CategoryRecord(id = "cat2", name = "Silver")
+        val before = AppSnapshot(categories = listOf(first, second))
+        val next = before.copy(categories = listOf(second, first))
+
+        val classified = ClassicSnapshotMutationClassifier.classify(before, next)
+
+        assertTrue(classified.mutation is ReorderCategoryMutation)
+        assertEquals("CATEGORY_REORDER", classified.mutation.auditLabel)
+    }
+
+    @Test
     fun `mixed customer and category change is rejected`() {
         val before = AppSnapshot(customers = listOf(customer), categories = listOf(CategoryRecord(id = "cat1", name = "Gold")))
         val next = before.copy(
