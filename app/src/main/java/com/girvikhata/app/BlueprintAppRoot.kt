@@ -179,38 +179,65 @@ private fun BlueprintUnlock(
     unlocked: () -> Unit,
 ) {
     val context = LocalContext.current
+    val biometricFirst = biometricAvailability == BiometricAvailability.AVAILABLE
+    var usePin by rememberSaveable { mutableStateOf(!biometricFirst) }
     var pin by rememberSaveable { mutableStateOf("") }
-    var message by rememberSaveable { mutableStateOf("PIN daalein") }
+    var message by rememberSaveable {
+        mutableStateOf(if (biometricFirst) "Fingerprint se unlock karein" else "PIN se unlock karein")
+    }
     BlueprintSecurePanel("Girvi Khata Unlock", message) {
-        BlueprintPinField("6-digit PIN", pin) { pin = it.filter(Char::isDigit).take(6) }
-        Button(
-            onClick = {
-                when (val result = verify(pin)) {
-                    PinVerificationResult.Success -> unlocked()
-                    PinVerificationResult.NotConfigured -> message = "PIN setup nahi mila"
-                    is PinVerificationResult.Locked -> message = "Security lock active hai"
-                    is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
-                }
-                pin = ""
-            },
-            enabled = pin.length == 6,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = BlueprintPurple),
-        ) { Text("PIN se Unlock") }
-        if (biometricAvailability == BiometricAvailability.AVAILABLE) {
-            OutlinedButton(
+        if (!usePin && biometricFirst) {
+            Button(
                 onClick = { biometric(unlocked) { message = it } },
                 modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = BlueprintPurple),
             ) {
                 Icon(Icons.Default.Fingerprint, null)
                 Spacer(Modifier.size(8.dp))
                 Text("Fingerprint se Unlock")
             }
+            TextButton(
+                onClick = {
+                    usePin = true
+                    message = "6-digit PIN daalein"
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Use PIN instead") }
+        } else {
+            BlueprintPinField("6-digit PIN", pin) { pin = it.filter(Char::isDigit).take(6) }
+            Button(
+                onClick = {
+                    when (val result = verify(pin)) {
+                        PinVerificationResult.Success -> unlocked()
+                        PinVerificationResult.NotConfigured -> message = "PIN setup nahi mila"
+                        is PinVerificationResult.Locked -> message = "Security lock active hai"
+                        is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
+                    }
+                    pin = ""
+                },
+                enabled = pin.length == 6,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = BlueprintPurple),
+            ) { Text("PIN se Unlock") }
+            if (biometricFirst) {
+                TextButton(
+                    onClick = {
+                        usePin = false
+                        pin = ""
+                        message = "Fingerprint se unlock karein"
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Fingerprint, null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Use Fingerprint")
+                }
+            }
+            TextButton(
+                onClick = { context.startActivity(Intent(context, PinRecoveryActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("PIN Recovery / PIN भूल गए") }
         }
-        TextButton(
-            onClick = { context.startActivity(Intent(context, PinRecoveryActivity::class.java)) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("PIN Recovery / PIN भूल गए") }
     }
 }
 
@@ -341,29 +368,39 @@ private fun BlueprintDashboard(
     newGirvi: () -> Unit,
     customers: () -> Unit,
     openGirvi: (String) -> Unit,
-) = BlueprintPage("Girvi Khata") {
-    val today = blueprintStartOfToday()
-    val active = snapshot.girvis.filter { it.status == "ACTIVE" }
-    val totalOutstanding = active.sumOf { girvi ->
-        runCatching { BlueprintLedgerEngine.project(girvi, today).totalDuePaise }.getOrDefault(girvi.principalPaise)
-    }
-    Text("नमस्ते मालिक जी", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-    Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date()), color = Color.Gray)
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        BlueprintActionCard("नया गिरवी", "Contact + photo", Modifier.weight(1f), newGirvi)
-        BlueprintActionCard("Customers", "${snapshot.customers.size} saved", Modifier.weight(1f), customers)
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        BlueprintStat("Active Girvi", active.size.toString(), Modifier.weight(1f))
-        BlueprintStat("आज का कुल Due", blueprintMoney(totalOutstanding), Modifier.weight(1f))
-    }
-    Text("हाल की गिरवी", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(snapshot.girvis.sortedByDescending { it.createdAt }.take(5), key = { it.id }) { girvi ->
-            BlueprintClickCard(
-                girvi.girviNumber,
-                "${girvi.customerName} • ${blueprintMoney(girvi.principalPaise)} • ${girvi.status}",
-            ) { openGirvi(girvi.id) }
+) {
+    val context = LocalContext.current
+    val profile = remember { OwnerBusinessProfileStore(context).load() }
+    val title = profile.businessName.ifBlank { "Girvi Khata" }
+    BlueprintPage(title) {
+        val today = blueprintStartOfToday()
+        val active = snapshot.girvis.filter { it.status == "ACTIVE" }
+        val totalOutstanding = active.sumOf { girvi ->
+            runCatching { BlueprintLedgerEngine.project(girvi, today).totalDuePaise }.getOrDefault(girvi.principalPaise)
+        }
+        Text(
+            if (profile.ownerName.isBlank()) "नमस्ते मालिक जी" else "नमस्ते ${profile.ownerName}",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        if (profile.businessName.isNotBlank()) Text(profile.businessName, color = BlueprintPurple, fontWeight = FontWeight.Bold)
+        Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date()), color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            BlueprintActionCard("नया गिरवी", "Contact + photo", Modifier.weight(1f), newGirvi)
+            BlueprintActionCard("Customers", "${snapshot.customers.size} saved", Modifier.weight(1f), customers)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            BlueprintStat("Active Girvi", active.size.toString(), Modifier.weight(1f))
+            BlueprintStat("आज का कुल Due", blueprintMoney(totalOutstanding), Modifier.weight(1f))
+        }
+        Text("हाल की गिरवी", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(snapshot.girvis.sortedByDescending { it.createdAt }.take(5), key = { it.id }) { girvi ->
+                BlueprintClickCard(
+                    girvi.girviNumber,
+                    "${girvi.customerName} • ${blueprintMoney(girvi.principalPaise)} • ${girvi.status}",
+                ) { openGirvi(girvi.id) }
+            }
         }
     }
 }
