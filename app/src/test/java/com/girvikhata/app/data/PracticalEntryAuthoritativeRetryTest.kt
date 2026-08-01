@@ -4,9 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Rebuild regression coverage: Practical Entry no longer owns stale-fingerprint retry logic.
+ * It classifies once, then applies the typed mutation to the latest authoritative snapshot.
+ */
 class PracticalEntryAuthoritativeRetryTest {
     @Test
-    fun practicalCreate_retriesOnceAgainstLatestAuthoritativeSnapshot() {
+    fun practicalCreate_appliesMutationToLatestAuthoritativeSnapshotWithoutFingerprintRetry() {
         val customer = CustomerRecord(name = "Retry Customer", mobile = "9999999999")
         val girvi = GirviRecord(
             girviNumber = "GK-0009",
@@ -19,44 +23,44 @@ class PracticalEntryAuthoritativeRetryTest {
             monthlyRateBasisPoints = 200,
             items = listOf(GirviItemRecord(categoryName = "Gold", itemName = "Chain")),
         )
-        val before = AppSnapshot()
-        val next = before.copy(customers = listOf(customer), girvis = listOf(girvi))
-        var authoritative = before.copy(categories = listOf(CategoryRecord(name = "Gold")))
-        var attempts = 0
+        val screenBefore = AppSnapshot()
+        val proposed = screenBefore.copy(customers = listOf(customer), girvis = listOf(girvi))
+        var authoritative = screenBefore.copy(categories = listOf(CategoryRecord(name = "Gold")))
+        var executions = 0
 
         val gateway = ClassicVerifiedWriteGateway(
             reloadAuthoritative = { authoritative },
-            executeVerified = { request ->
-                attempts++
-                if (attempts == 1) {
-                    throw IllegalArgumentException("Business data changed before transaction test; refresh and retry")
-                }
-                authoritative = request.mutation.apply(authoritative)
+            executeMutation = { mutation ->
+                executions++
+                authoritative = mutation.apply(authoritative)
+                authoritative
             },
         )
 
-        val saved = gateway.persist(before, next)
+        val saved = gateway.persist(screenBefore, proposed)
 
-        assertEquals(2, attempts)
+        assertEquals(1, executions)
         assertTrue(saved.girvis.any { it.id == girvi.id })
         assertTrue(saved.customers.any { it.id == customer.id })
+        assertEquals(1, saved.categories.size)
     }
 
     @Test
-    fun nonPracticalMutation_doesNotReceiveAutomaticRetry() {
+    fun writerFailure_isNotHiddenByLegacyRetryLoop() {
         val before = AppSnapshot(categories = listOf(CategoryRecord(name = "Gold")))
         val next = before.copy(categories = before.categories + CategoryRecord(name = "Silver"))
-        var attempts = 0
+        var executions = 0
         val gateway = ClassicVerifiedWriteGateway(
             reloadAuthoritative = { before },
-            executeVerified = {
-                attempts++
-                throw IllegalArgumentException("Business data changed before transaction test; refresh and retry")
+            executeMutation = {
+                executions++
+                error("authoritative encrypted save failed")
             },
         )
 
-        runCatching { gateway.persist(before, next) }
+        val failure = runCatching { gateway.persist(before, next) }.exceptionOrNull()
 
-        assertEquals(1, attempts)
+        assertEquals(1, executions)
+        assertTrue(failure?.message?.contains("authoritative encrypted save failed") == true)
     }
 }
