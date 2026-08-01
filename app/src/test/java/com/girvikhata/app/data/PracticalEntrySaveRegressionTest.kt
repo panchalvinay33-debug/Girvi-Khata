@@ -1,0 +1,69 @@
+package com.girvikhata.app.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PracticalEntrySaveRegressionTest {
+    @Test
+    fun practicalEntry_newCustomerAndGirvi_persistsThroughGateway() {
+        val before = AppSnapshot()
+        val customer = CustomerRecord(name = "Test Customer", mobile = "9999999999")
+        val girvi = GirviRecord(
+            girviNumber = "GK-0001",
+            customerId = customer.id,
+            customerName = customer.name,
+            categoryName = "Gold",
+            itemName = "Ring",
+            principalPaise = 10_000_00,
+            monthlyRateBasisPoints = 200,
+            items = listOf(GirviItemRecord(categoryName = "Gold", itemName = "Ring")),
+        )
+        val next = before.copy(customers = listOf(customer), girvis = listOf(girvi))
+        var authoritative = before
+        var executed: VerifiedBusinessWriteRequest? = null
+        val gateway = ClassicVerifiedWriteGateway(
+            reloadAuthoritative = { authoritative },
+            executeVerified = { request ->
+                executed = request
+                authoritative = request.mutation.apply(authoritative)
+            },
+        )
+
+        val saved = gateway.persist(before, next)
+
+        assertEquals(1, saved.customers.size)
+        assertEquals(1, saved.girvis.size)
+        assertEquals(girvi.id, saved.girvis.single().id)
+        assertEquals("CUSTOMER_UPSERT_GIRVI_CREATE", executed?.mutation?.auditLabel)
+    }
+
+    @Test
+    fun practicalEntry_existingMatchedCustomerEditAndGirvi_areAtomic() {
+        val oldCustomer = CustomerRecord(name = "Old Name", mobile = "9999999999", address = "Old")
+        val before = AppSnapshot(customers = listOf(oldCustomer))
+        val editedCustomer = oldCustomer.copy(name = "Contact Name", address = "New Address")
+        val girvi = GirviRecord(
+            girviNumber = "GK-0002",
+            customerId = editedCustomer.id,
+            customerName = editedCustomer.name,
+            categoryName = "Silver",
+            itemName = "Payal",
+            principalPaise = 5_000_00,
+            monthlyRateBasisPoints = 250,
+            items = listOf(GirviItemRecord(categoryName = "Silver", itemName = "Payal")),
+        )
+        val next = before.copy(customers = listOf(editedCustomer), girvis = listOf(girvi))
+        var authoritative = before
+        val gateway = ClassicVerifiedWriteGateway(
+            reloadAuthoritative = { authoritative },
+            executeVerified = { request -> authoritative = request.mutation.apply(authoritative) },
+        )
+
+        val saved = gateway.persist(before, next)
+
+        assertEquals("Contact Name", saved.customers.single().name)
+        assertEquals("New Address", saved.customers.single().address)
+        assertTrue(saved.girvis.any { it.id == girvi.id })
+    }
+}
