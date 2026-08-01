@@ -52,7 +52,7 @@ object BlueprintLedgerEngine {
                 monthlyRateBasisPoints = girvi.monthlyRateBasisPoints,
                 periodRule = InterestPeriodRule.COMPLETED_MONTHS_PLUS_DAYS,
             )
-        val advances = buildList {
+        val allAdvances = buildList {
             add(
                 AdvanceSlice(
                     id = "original-${girvi.id}",
@@ -77,8 +77,9 @@ object BlueprintLedgerEngine {
             }
         }.sortedWith(compareBy<AdvanceSlice> { it.createdAt }.thenBy { it.id })
 
-        advances.forEach { require(it.createdAt <= settlementAt) { "Advance date after settlement date" } }
-
+        // Historical settlement is allowed. Advances that happened after the selected date simply
+        // did not exist yet and must not block or contaminate that day's account.
+        val advances = allAdvances.filter { it.createdAt <= settlementAt }
         val effectivePayments = effectivePayments(girvi.payments)
             .filter { it.createdAt <= settlementAt }
 
@@ -87,10 +88,8 @@ object BlueprintLedgerEngine {
         val interestReceived = effectivePayments.fold(0L) { total, payment -> Math.addExact(total, payment.interestPaise) }
         val chargesReceived = effectivePayments.fold(0L) { total, payment -> Math.addExact(total, payment.chargesPaise) }
 
-        // Alpha 25C bridge: each advance accrues independently from its own date. Principal payment
-        // allocation across individual advance lots is intentionally not guessed here. Until an
-        // explicit allocation event is stored, accrued interest remains reproducible and payments
-        // are subtracted from the received bucket rather than silently rewriting old principal.
+        // Every advance accrues independently from its own date. Principal payment allocation across
+        // individual advance lots is never guessed; received principal is kept as its own ledger bucket.
         val grossInterest = advances.fold(0L) { total, advance ->
             Math.addExact(
                 total,
