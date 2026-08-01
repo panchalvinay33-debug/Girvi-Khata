@@ -1,7 +1,7 @@
 # Girvi Khata — Updated Delivery Roadmap
 
 Date: 2026-08-01
-Current active milestone: Alpha 25A
+Current active milestone: Alpha 25B
 
 ## Governance rules
 
@@ -23,7 +23,7 @@ Current active milestone: Alpha 25A
 
 ## Alpha 25A — Practical bilingual entry
 
-### Implemented
+### Implemented and CI-verified
 - Dedicated practical entry activity
 - Owner-PIN gate for shortcut
 - Hindi/English/mixed text entry
@@ -37,46 +37,58 @@ Current active milestone: Alpha 25A
 - Monthly interest preview
 - Bilingual review before save
 - Save through encrypted verified-write path
+- Security Guard green
+- Unit tests green
+- Android compilation green
+- Pinned signing identity restored and verified
+- Signed Alpha 25A testing APK produced from run 517
 
-### Remaining before Alpha 25A testing APK
-- Compile and unit-test green
-- Remove temporary Compose import compatibility shim cleanly
-- Add model/helper tests for mobile normalization, dates and weight validation
+### Remaining before Alpha 25A promotion
+- Owner-phone practical workflow validation
 - Verify contact with zero, one and multiple phone numbers
 - Verify camera cancel/failure cleanup
 - Verify existing-customer updates do not overwrite unrelated data
 - Verify back-dated entry ordering and reports
 - Verify private photos survive normal app restart
-- Decide whether Alpha 25A backup must include photos before phone testing; stable promotion requires yes
-- Produce signed APK and owner test checklist
-
-### Alpha 25A acceptance gates
-- Manual entry works when contact/camera actions are cancelled
-- Hindi and English names/items persist and search correctly
-- Imported values remain editable
-- Future date cannot be saved
-- Old Alpha 24 snapshot loads without loss
-- New entry appears in existing customer/girvi screens
-- PIN gate cannot be bypassed
-- Security Guard, tests, compile, signing and APK verification pass
+- Media-inclusive backup is required before stable real-photo use
+- Remove temporary Compose import compatibility shim in a clean source change
 
 ## Alpha 25B — Interest engine
 
-Deliverables:
+### Implemented on `agent/alpha25b-interest-engine`
+- Reusable deterministic `InterestEngine`
 - Percentage-per-month mode
 - Flat monthly charge mode
-- Per-day accurate calculation
-- Full/partial month rules
-- Compound interest with configurable interval
-- Immutable rule snapshot per principal/advance
-- Live preview and comparison
-- Golden calculation test matrix
+- Exact per-day calculation using monthly charge / 30
+- Full-month-started rule
+- Completed calendar months + remaining days rule
+- Compound percentage interest with configurable month interval
+- Money calculated in paise using `Long` and `BigDecimal` HALF_UP rounding
+- Arithmetic overflow fails closed
+- Versioned `GKINT1` terms codec
+- Backward-compatible `GirviInterestMetadata` attach/read/strip helper
+- Reusable bilingual Compose `InterestEntrySection`
+- Settlement comparison helper for Exact Days vs Full Month vs Month+Days
+- Calculation contract documented
+- Tests for simple monthly, flat, daily, partial month and compounding
+- Tests for metadata round-trip and malformed metadata
+- Tests for month-end and leap-year boundaries
 
-Acceptance:
+### Remaining Alpha 25B integration
+- Connect `InterestEntrySection` to existing Practical Entry with a small reviewed patch
+- Persist `GKINT1` metadata during practical-entry save
+- Read metadata when displaying/editing a girvi
+- Add old-entry fallback mapping to legacy `monthlyRateBasisPoints`
+- Produce signed Alpha 25B testing APK after integration
+- Owner-phone calculation spot checks
+
+### Alpha 25B acceptance
+- Same engine is used by entry, future advances and settlement
 - Reproducible calculations across leap years and month lengths
 - No floating-point money storage
-- Date/timezone boundary tests
 - Old monthly-percentage entries remain unchanged
+- Malformed/unknown interest metadata never silently invents terms
+- Flat monthly and compound percentage remain clearly separate modes
 
 ## Alpha 25C — Additional advances and two-column ledger
 
@@ -84,12 +96,13 @@ Deliverables:
 - Add More Amount inside active girvi
 - Separate effective date per advance
 - Reuse or override interest rule
+- Immutable interest snapshot per advance
 - Shopkeeper-gave/customer-paid ledger
 - Totals and outstanding balances
 - Clear confirmation preventing advance/payment reversal confusion
 
 Acceptance:
-- Multiple advances calculate independently
+- Multiple advances calculate independently through Alpha 25B engine
 - Payment allocations reconcile exactly
 - Reversal returns account to prior state
 - Reports agree with girvi detail totals
@@ -102,6 +115,7 @@ Deliverables:
 - Interest-first, principal-first and custom split
 - Discounts/adjustments with reason
 - Detailed principal/interest breakdown
+- Calculation comparison via Alpha 25B comparison helper
 - Close/release confirmation
 - Side calculator
 
@@ -147,14 +161,14 @@ Only after stable offline release:
 
 ## Work order from current point
 
-1. Make Alpha 25A CI green.
-2. Add Alpha 25A validation tests.
-3. Complete media backup decision/implementation.
-4. Produce signed testing APK.
-5. Run owner-phone checklist without uninstalling Alpha 21.
-6. Fix phone findings on same draft PR.
-7. Owner approves or rejects Alpha 25A.
-8. Start Alpha 25B on a new branch from the approved testing base.
+1. Keep Alpha 25A signed APK as current phone-test baseline.
+2. Finish Alpha 25B CI for engine/UI helper/tests.
+3. Integrate Alpha 25B selector + metadata into existing practical entry.
+4. Produce signed Alpha 25B testing APK.
+5. Owner-phone spot-check percentage, flat, daily and compound examples.
+6. Fix calculation/integration findings before any promotion.
+7. Start Alpha 25C ledger from the verified Alpha 25B base.
+8. Finish media-inclusive backup before stable real-photo promotion.
 
 ## Definition of maximum useful work per development pass
 
