@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -45,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -151,8 +153,10 @@ private fun RecoveryCenterScreen(
     openRestore: () -> Unit,
     close: () -> Unit,
 ) {
+    val context = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
     var revealKey by rememberSaveable { mutableStateOf(false) }
+    var acknowledgementChecked by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("Recovery key ko phone ke bahar likh kar rakhein") }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -179,6 +183,22 @@ private fun RecoveryCenterScreen(
                     Text(key, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("Is key ka screenshot/print ya paper copy phone se alag rakhein.", color = Color(0xFF8A4B00))
                     OutlinedButton(onClick = { copyKey(key); message = "Recovery key clipboard me copy hui" }) { Text("Copy Recovery Key") }
+                    if (!status.recoveryKeyAcknowledged) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = acknowledgementChecked, onCheckedChange = { acknowledgementChecked = it })
+                            Text("Maine Recovery Key phone ke bahar safe rakh li hai")
+                        }
+                        Button(
+                            enabled = acknowledgementChecked,
+                            onClick = {
+                                config.acknowledgeRecoveryKey()
+                                message = "Recovery Key confirmed. Ab cloud folder choose kar sakte hain."
+                                refresh++
+                            },
+                        ) { Text("Confirm Recovery Key Saved") }
+                    } else {
+                        Text("✓ External Recovery Key confirmed", color = Color(0xFF138A4A), fontWeight = FontWeight.Bold)
+                    }
                 }
                 Button(onClick = { revealKey = !revealKey; if (revealKey) refresh++ }) {
                     Text(if (revealKey) "Hide Recovery Key" else if (keyStore.hasRecoveryKey()) "Show Recovery Key" else "Generate Recovery Key")
@@ -197,8 +217,12 @@ private fun RecoveryCenterScreen(
                 if (status.lastSuccessAt > 0) Text("Last safe backup: ${DateFormat.getDateTimeInstance().format(Date(status.lastSuccessAt))}")
                 Text("Generations kept: ${status.generationCount} / 12")
                 status.lastError?.let { Text("Last error: $it", color = MaterialTheme.colorScheme.error) }
-                Button(onClick = { folderPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (status.folderUri == null) "Choose Google Drive / Cloud Folder" else "Change Backup Folder")
+                Button(
+                    enabled = status.recoveryKeyAcknowledged,
+                    onClick = { folderPicker.launch(null) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (!status.recoveryKeyAcknowledged) "Pehle Recovery Key confirm karein" else if (status.folderUri == null) "Choose Google Drive / Cloud Folder" else "Change Backup Folder")
                 }
                 OutlinedButton(
                     enabled = status.enabled && keyStore.hasRecoveryKey(),
@@ -209,12 +233,23 @@ private fun RecoveryCenterScreen(
                     OutlinedButton(
                         onClick = {
                             config.setEnabled(false)
-                            AutoBackupWorker.cancel(androidx.compose.ui.platform.LocalContext.current)
+                            AutoBackupWorker.cancel(context)
                             message = "Automatic backup paused"
                             refresh++
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Pause Automatic Backup") }
+                } else if (status.folderUri != null && status.recoveryKeyAcknowledged) {
+                    OutlinedButton(
+                        onClick = {
+                            config.setEnabled(true)
+                            AutoBackupWorker.scheduleDaily(context)
+                            AutoBackupWorker.enqueueNow(context)
+                            message = "Automatic backup resumed"
+                            refresh++
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Resume Automatic Backup") }
                 }
             }
         }
