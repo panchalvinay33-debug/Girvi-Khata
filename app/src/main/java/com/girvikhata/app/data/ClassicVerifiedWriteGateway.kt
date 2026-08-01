@@ -19,8 +19,14 @@ class ClassicVerifiedWriteGateway internal constructor(
 
     fun persist(screenSnapshot: AppSnapshot, nextSnapshot: AppSnapshot): AppSnapshot {
         val classified = classifySafely(screenSnapshot, nextSnapshot)
+        val practicalCreate = classified.mutation is CreateGirviWithCustomerUpsertMutation
+
+        // Practical Entry can stay open while startup recovery, contact import, or another
+        // activity refreshes the encrypted snapshot. Do not use that old screen fingerprint.
+        // Build the transaction against the authoritative snapshot immediately before write.
+        val authoritativeBase = if (practicalCreate) reloadAuthoritative() else screenSnapshot
         val initialRequest = VerifiedBusinessWriteRequest(
-            expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
+            expectedFingerprint = RelationalShadowFingerprint.sha256(authoritativeBase),
             mutation = classified.mutation,
             title = classified.title,
         )
@@ -28,16 +34,15 @@ class ClassicVerifiedWriteGateway internal constructor(
         try {
             executeVerified(initialRequest)
         } catch (failure: Throwable) {
-            val practicalCreate = classified.mutation is CreateGirviWithCustomerUpsertMutation
             val staleSnapshot = failure.message?.contains(
                 "Business data changed before transaction",
                 ignoreCase = true,
             ) == true
             if (!practicalCreate || !staleSnapshot) throw failure
 
-            // The first rejected attempt may have left a PENDING intent. The coordinator's
-            // recovery path reconciles that metadata before this one-time retry. No business
-            // rows are discarded; the encrypted authoritative snapshot remains source of truth.
+            // One bounded retry handles a refresh that lands in the tiny interval between the
+            // authoritative read above and coordinator execution. The coordinator validates and
+            // repairs any interrupted practical-write intent before accepting this retry.
             val latest = reloadAuthoritative()
             executeVerified(
                 VerifiedBusinessWriteRequest(
