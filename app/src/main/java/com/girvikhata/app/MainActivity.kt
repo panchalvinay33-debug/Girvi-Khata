@@ -79,7 +79,7 @@ class MainActivity : FragmentActivity() {
                         )
                     }
                     ExtendedFloatingActionButton(
-                        onClick = { startActivity(Intent(this@MainActivity, PracticalEntryActivity::class.java)) },
+                        onClick = { startActivity(Intent(this@MainActivity, PracticalEntryGateActivity::class.java)) },
                         modifier = Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 92.dp),
                         icon = { Icon(Icons.Default.Add, contentDescription = null) },
                         text = { Text("नया गिरवी / New") },
