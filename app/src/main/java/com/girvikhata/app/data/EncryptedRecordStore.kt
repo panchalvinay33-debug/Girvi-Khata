@@ -283,6 +283,7 @@ class EncryptedRecordStore(
             },
             girvis = List(girvis.length()) { index ->
                 girvis.getJSONObject(index).run {
+                    val girviId = getString("id")
                     val legacyCategory = optString("categoryName")
                     val legacyItem = optString("itemName")
                     val legacyWeight = optString("weightGrams")
@@ -291,7 +292,8 @@ class EncryptedRecordStore(
                         List(itemArray.length()) { itemIndex ->
                             itemArray.getJSONObject(itemIndex).run {
                                 GirviItemRecord(
-                                    id = optString("id", UUID.randomUUID().toString()),
+                                    id = optString("id").takeIf { it.isNotBlank() }
+                                        ?: legacyChildId("item", girviId, itemIndex),
                                     categoryName = optString("categoryName", legacyCategory),
                                     itemName = optString("itemName", legacyItem),
                                     quantity = optInt("quantity", 1),
@@ -302,13 +304,21 @@ class EncryptedRecordStore(
                             }
                         }
                     } else {
-                        listOf(GirviItemRecord(categoryName = legacyCategory, itemName = legacyItem, grossWeightGrams = legacyWeight))
+                        listOf(
+                            GirviItemRecord(
+                                id = legacyChildId("item", girviId, 0),
+                                categoryName = legacyCategory,
+                                itemName = legacyItem,
+                                grossWeightGrams = legacyWeight,
+                            ),
+                        )
                     }
                     val paymentArray = optJSONArray("payments") ?: JSONArray()
                     val decodedPayments = List(paymentArray.length()) { paymentIndex ->
                         paymentArray.getJSONObject(paymentIndex).run {
                             PaymentRecord(
-                                id = optString("id", UUID.randomUUID().toString()),
+                                id = optString("id").takeIf { it.isNotBlank() }
+                                    ?: legacyChildId("payment", girviId, paymentIndex),
                                 receiptNumber = optString("receiptNumber"),
                                 amountPaise = optLong("amountPaise"),
                                 principalPaise = optLong("principalPaise"),
@@ -323,7 +333,7 @@ class EncryptedRecordStore(
                         }
                     }
                     GirviRecord(
-                        id = getString("id"),
+                        id = girviId,
                         girviNumber = getString("girviNumber"),
                         customerId = getString("customerId"),
                         customerName = getString("customerName"),
@@ -369,6 +379,9 @@ class EncryptedRecordStore(
         private val ASSOCIATED_DATA = "girvi-khata-local-store-v1".toByteArray(Charsets.UTF_8)
     }
 }
+
+internal fun legacyChildId(kind: String, girviId: String, index: Int): String =
+    "legacy-$kind-$girviId-$index"
 
 data class AppSnapshot(
     val schemaVersion: Int = 3,
