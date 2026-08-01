@@ -5,6 +5,7 @@ import com.girvikhata.app.security.DeviceKeyManager
 import com.girvikhata.app.security.EncryptedPayload
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -72,7 +73,6 @@ class EncryptedRecordStore(
         validateSnapshot(normalized)
 
         if (file.exists()) {
-            // Never overwrite a damaged primary with a normal business operation.
             readEnvelope(file)
             createSafetyCopy(file)
         }
@@ -97,16 +97,15 @@ class EncryptedRecordStore(
         val plaintext = encode(snapshot).toByteArray(Charsets.UTF_8)
         val encrypted = keyManager.encrypt(plaintext, associatedData = ASSOCIATED_DATA)
         FileOutputStream(target).use { stream ->
-            DataOutputStream(stream.buffered()).use { output ->
-                output.writeInt(MAGIC)
-                output.writeInt(FORMAT_VERSION)
-                output.writeInt(encrypted.iv.size)
-                output.write(encrypted.iv)
-                output.writeInt(encrypted.ciphertext.size)
-                output.write(encrypted.ciphertext)
-                output.flush()
-            }
-            stream.fd.sync()
+            val output = DataOutputStream(BufferedOutputStream(stream))
+            output.writeInt(MAGIC)
+            output.writeInt(FORMAT_VERSION)
+            output.writeInt(encrypted.iv.size)
+            output.write(encrypted.iv)
+            output.writeInt(encrypted.ciphertext.size)
+            output.write(encrypted.ciphertext)
+            output.flush()
+            runCatching { stream.fd.sync() }
         }
     }
 
