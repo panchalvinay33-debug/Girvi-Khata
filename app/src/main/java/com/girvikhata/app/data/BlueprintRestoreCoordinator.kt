@@ -2,11 +2,13 @@ package com.girvikhata.app.data
 
 import android.content.Context
 import com.girvikhata.app.backup.MediaBackupSupport
+import com.girvikhata.app.backup.PortableMediaSupport
 import com.girvikhata.app.domain.MasterCatalog
 
 /**
- * Rebuild restore path: encrypted business snapshot is authoritative and media/masters are activated
- * as one verified generation. Any activation failure attempts an immediate rollback of all three.
+ * Rebuild restore path. Business, masters and media are activated as one verified generation.
+ * New v3 backups use portable photo bytes and re-encrypt them under the destination device key.
+ * Legacy v2 device-encrypted media remains supported for same-device recovery.
  */
 class BlueprintRestoreCoordinator internal constructor(
     private val loadBusiness: () -> AppSnapshot,
@@ -15,6 +17,8 @@ class BlueprintRestoreCoordinator internal constructor(
     private val saveMasters: (MasterCatalog) -> Unit,
     private val loadMedia: () -> Map<String, ByteArray>,
     private val saveMedia: (Map<String, ByteArray>) -> Unit,
+    private val loadPortableMedia: () -> Map<String, ByteArray> = loadMedia,
+    private val savePortableMedia: (Map<String, ByteArray>) -> Unit = saveMedia,
 ) {
     constructor(context: Context) : this(
         loadBusiness = EncryptedRecordStore(context.applicationContext)::load,
@@ -23,6 +27,8 @@ class BlueprintRestoreCoordinator internal constructor(
         saveMasters = EncryptedMasterCatalogStore(context.applicationContext)::save,
         loadMedia = { MediaBackupSupport.collect(context.applicationContext.filesDir) },
         saveMedia = { MediaBackupSupport.restore(context.applicationContext.filesDir, it) },
+        loadPortableMedia = { PortableMediaSupport.collect(context.applicationContext) },
+        savePortableMedia = { PortableMediaSupport.restore(context.applicationContext, it) },
     )
 
     data class Result(
@@ -38,10 +44,14 @@ class BlueprintRestoreCoordinator internal constructor(
         importedMasters: MasterCatalog,
         containsPortableMasters: Boolean,
         targetMedia: Map<String, ByteArray>,
+        targetPortableMedia: Map<String, ByteArray> = emptyMap(),
     ): Result {
+        require(targetMedia.isEmpty() || targetPortableMedia.isEmpty()) { "Backup contains conflicting media generations" }
+        val portableMode = targetPortableMedia.isNotEmpty()
         val beforeBusiness = loadBusiness()
         val beforeMasters = loadMasters()
-        val beforeMedia = loadMedia()
+        val beforePortableMedia = loadPortableMedia()
+        val beforeLegacyMedia = if (portableMode) emptyMap() else loadMedia()
         val targetMasters = if (containsPortableMasters) importedMasters else beforeMasters
 
         try {
@@ -51,14 +61,19 @@ class BlueprintRestoreCoordinator internal constructor(
             saveMasters(targetMasters)
             check(loadMasters() == targetMasters) { "Restored masters verification failed" }
 
-            saveMedia(targetMedia)
-            check(sameMedia(loadMedia(), targetMedia)) { "Restored encrypted media verification failed" }
+            if (portableMode) {
+                savePortableMedia(targetPortableMedia)
+                check(sameMedia(loadPortableMedia(), targetPortableMedia)) { "Portable media re-encryption verification failed" }
+            } else {
+                saveMedia(targetMedia)
+                check(sameMedia(loadMedia(), targetMedia)) { "Restored encrypted media verification failed" }
+            }
 
             return Result(
                 customerCount = targetBusiness.customers.size,
                 girviCount = targetBusiness.girvis.size,
                 masterCount = targetMasters.entries.size,
-                mediaCount = targetMedia.size,
+                mediaCount = if (portableMode) targetPortableMedia.size else targetMedia.size,
             )
         } catch (failure: Throwable) {
             val rollbackFailures = mutableListOf<Throwable>()
@@ -66,13 +81,22 @@ class BlueprintRestoreCoordinator internal constructor(
                 .exceptionOrNull()?.let(rollbackFailures::add)
             runCatching { saveMasters(beforeMasters); check(loadMasters() == beforeMasters) }
                 .exceptionOrNull()?.let(rollbackFailures::add)
-            runCatching { saveMedia(beforeMedia); check(sameMedia(loadMedia(), beforeMedia)) }
-                .exceptionOrNull()?.let(rollbackFailures::add)
+            runCatching {
+                if (portableMode) {
+                    savePortableMedia(beforePortableMedia)
+                    check(sameMedia(loadPortableMedia(), beforePortableMedia))
+                } else {
+                    saveMedia(beforeLegacyMedia)
+                    check(sameMedia(loadMedia(), beforeLegacyMedia))
+                }
+            }.exceptionOrNull()?.let(rollbackFailures::add)
             rollbackFailures.forEach(failure::addSuppressed)
             if (rollbackFailures.isNotEmpty()) {
                 throw IllegalStateException("Restore failed and rollback was incomplete", failure)
             }
             throw failure
+        } finally {
+            if (portableMode) PortableMediaSupport.clear(beforePortableMedia)
         }
     }
 
