@@ -3,6 +3,7 @@ package com.girvikhata.app.data
 import android.content.Context
 import com.girvikhata.app.security.DeviceKeyManager
 import com.girvikhata.app.security.EncryptedPayload
+import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -73,15 +74,18 @@ class SecureMediaVault(
 
     private fun writeEnvelope(target: File, payload: EncryptedPayload) {
         FileOutputStream(target).use { stream ->
-            DataOutputStream(stream.buffered()).use { out ->
-                out.writeInt(MAGIC)
-                out.writeInt(payload.iv.size)
-                out.write(payload.iv)
-                out.writeInt(payload.ciphertext.size)
-                out.write(payload.ciphertext)
-                out.flush()
-            }
-            stream.fd.sync()
+            // Do not wrap this in another `use`: closing the buffered wrapper closes `stream`, and
+            // calling fd.sync() afterwards then throws SyncFailedException on Android.
+            val out = DataOutputStream(BufferedOutputStream(stream))
+            out.writeInt(MAGIC)
+            out.writeInt(payload.iv.size)
+            out.write(payload.iv)
+            out.writeInt(payload.ciphertext.size)
+            out.write(payload.ciphertext)
+            out.flush()
+            // Durability hint. Read-back verification below remains mandatory even on devices/filesystems
+            // where an explicit fsync is unavailable.
+            runCatching { stream.fd.sync() }
         }
     }
 
