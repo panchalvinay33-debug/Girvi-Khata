@@ -1,5 +1,6 @@
 package com.girvikhata.app
 
+import android.app.Activity
 import android.app.DatePickerDialog
 import android.content.Intent
 import android.net.Uri
@@ -44,7 +45,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -144,9 +144,10 @@ private fun PracticalEntryScreen(
     val firstCategory = categories.firstOrNull().orEmpty()
     val items = remember { mutableStateListOf(PracticalItemDraft(category = firstCategory)) }
 
-    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
-        if (uri != null) {
-            readContact(context, uri)?.let { contact ->
+    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) {
+            readSelectedPhoneContact(context, uri)?.let { contact ->
                 customerName = contact.first
                 mobile = contact.second
                 selectedCustomerId = CustomerMatcher.findBestMatch(
@@ -207,7 +208,9 @@ private fun PracticalEntryScreen(
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                             )
-                            IconButton(onClick = { contactPicker.launch(null) }) {
+                            IconButton(onClick = {
+                                contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                            }) {
                                 Icon(Icons.Default.Contacts, contentDescription = "Contact se customer laayein")
                             }
                             IconButton(onClick = { takePhoto(PhotoTarget.CUSTOMER) }) {
@@ -504,30 +507,23 @@ private object PrivateMediaVault {
     }
 }
 
-private fun readContact(context: android.content.Context, uri: Uri): Pair<String, String>? {
+private fun readSelectedPhoneContact(context: android.content.Context, uri: Uri): Pair<String, String>? {
     val projection = arrayOf(
-        ContactsContract.Contacts._ID,
-        ContactsContract.Contacts.DISPLAY_NAME,
-        ContactsContract.Contacts.HAS_PHONE_NUMBER,
+        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+        ContactsContract.CommonDataKinds.Phone.NUMBER,
     )
-    context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-        if (!cursor.moveToFirst()) return null
-        val id = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID))
-        val name = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME)).orEmpty()
-        val hasPhone = cursor.getInt(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.HAS_PHONE_NUMBER)) > 0
-        var phone = ""
-        if (hasPhone) {
-            context.contentResolver.query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-                "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID}=?",
-                arrayOf(id),
-                ContactsContract.CommonDataKinds.Phone.IS_PRIMARY + " DESC",
-            )?.use { phones -> if (phones.moveToFirst()) phone = phones.getString(0).orEmpty() }
+    return try {
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            val name = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)).orEmpty()
+            val phone = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)).orEmpty()
+            name to normalizeMobileInput(phone)
         }
-        return name to normalizeMobileInput(phone)
+    } catch (_: SecurityException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
     }
-    return null
 }
 
 private fun showDatePicker(context: android.content.Context, current: Long, onSelected: (Long) -> Unit) {
