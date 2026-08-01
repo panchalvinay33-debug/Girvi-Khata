@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.backup.ExternalBackupVerification
+import com.girvikhata.app.backup.MediaBackupSupport
 import com.girvikhata.app.backup.PortableAppBundleCodec
 import com.girvikhata.app.backup.PortableBackupCrypto
 import com.girvikhata.app.backup.SnapshotPortableCodec
@@ -101,8 +102,10 @@ class BackupActivity : FragmentActivity() {
             val secret = passphrase.toCharArray()
             val snapshot = store.load()
             val masters = masterStore.load()
-            val payload = PortableAppBundleCodec.encode(snapshot, masters)
+            val media = MediaBackupSupport.collect(filesDir)
+            val payload = PortableAppBundleCodec.encode(snapshot, masters, media)
             val encrypted = PortableBackupCrypto.encrypt(payload, secret, snapshot.schemaVersion)
+
             ExternalBackupVerification.verify(
                 expectedPackage = encrypted,
                 writtenPackage = encrypted,
@@ -116,6 +119,7 @@ class BackupActivity : FragmentActivity() {
                     .contentEquals(SnapshotPortableCodec.encode(snapshot)),
             ) { "Business bundle self-check failed" }
             require(decoded.masterCatalog == masters) { "Master bundle self-check failed" }
+            require(sameMedia(decoded.encryptedMedia, media)) { "Media bundle self-check failed" }
 
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             pendingBackup?.clearSecret()
@@ -129,8 +133,9 @@ class BackupActivity : FragmentActivity() {
                 girviCount = snapshot.girvis.size,
                 ledgerCount = snapshot.girvis.sumOf { it.payments.size },
                 masterCount = masters.entries.size,
+                mediaCount = media.size,
             )
-            message = "Files/Drive location choose karein. Business records aur masters dono same file mein verify honge."
+            message = "Location choose karein. Business + masters + ${media.size} encrypted photos same .gkb mein verify honge."
             createDocument.launch(pendingBackup!!.fileName)
         }.onFailure {
             pendingBackup?.clearSecret()
@@ -145,7 +150,7 @@ class BackupActivity : FragmentActivity() {
         if (uri == null || pending == null) {
             pending?.clearSecret()
             pendingBackup = null
-            message = "Backup save cancel hua. Safety Status reset nahi hua."
+            message = "Backup save cancel hua. Safety status unchanged hai."
             busy = false
             return
         }
@@ -162,16 +167,24 @@ class BackupActivity : FragmentActivity() {
             )
             val decrypted = PortableBackupCrypto.decrypt(writtenBytes, pending.passphrase)
             val decoded = PortableAppBundleCodec.decode(decrypted.payload)
-            require(decoded.snapshot.customers.size == pending.customerCount) { "Written business count mismatch" }
+            require(decoded.snapshot.customers.size == pending.customerCount) { "Written customer count mismatch" }
             require(decoded.snapshot.girvis.size == pending.girviCount) { "Written girvi count mismatch" }
             require(decoded.masterCatalog.entries.size == pending.masterCount) { "Written master count mismatch" }
+            require(decoded.encryptedMedia.size == pending.mediaCount) { "Written media count mismatch" }
 
             journal.markVerifiedBackup(verification.sha256, pending.customerCount, pending.girviCount, pending.ledgerCount)
-            BackupResult(pending.customerCount, pending.girviCount, pending.ledgerCount, pending.masterCount, verification.sha256)
+            BackupResult(
+                pending.customerCount,
+                pending.girviCount,
+                pending.ledgerCount,
+                pending.masterCount,
+                pending.mediaCount,
+                verification.sha256,
+            )
         }.onSuccess { result ->
-            message = "External backup verified: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • ${result.masters} masters • SHA ${result.sha256.take(12)}…"
+            message = "Verified backup: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • ${result.masters} masters • ${result.media} photos • SHA ${result.sha256.take(12)}…"
         }.onFailure {
-            message = "File save/read-back verify nahi hua: ${it.message ?: "unknown error"}. Backup due status unchanged hai."
+            message = "Backup verify nahi hua: ${it.message ?: "unknown error"}. Backup due status unchanged hai."
         }
         pending.clearSecret()
         pendingBackup = null
@@ -208,6 +221,9 @@ class BackupActivity : FragmentActivity() {
         }
     }
 
+    private fun sameMedia(a: Map<String, ByteArray>, b: Map<String, ByteArray>): Boolean =
+        a.keys == b.keys && a.all { (name, bytes) -> b[name]?.contentEquals(bytes) == true }
+
     private data class PendingExternalBackup(
         val fileName: String,
         val encryptedBytes: ByteArray,
@@ -218,9 +234,10 @@ class BackupActivity : FragmentActivity() {
         val girviCount: Int,
         val ledgerCount: Int,
         val masterCount: Int,
+        val mediaCount: Int,
     ) { fun clearSecret() = passphrase.fill('\u0000') }
 
-    private companion object { const val MAX_BACKUP_BYTES = 128 * 1024 * 1024 }
+    private companion object { const val MAX_BACKUP_BYTES = 160 * 1024 * 1024 }
 }
 
 private data class BackupResult(
@@ -228,6 +245,7 @@ private data class BackupResult(
     val girvis: Int,
     val ledgerEntries: Int,
     val masters: Int,
+    val media: Int,
     val sha256: String,
 )
 
@@ -245,7 +263,11 @@ private fun BackupRoot(
 }
 
 @Composable
-private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, success: () -> Unit, close: () -> Unit) {
+private fun BackupPinScreen(
+    verifyPin: (String) -> PinVerificationResult,
+    success: () -> Unit,
+    close: () -> Unit,
+) {
     var pin by rememberSaveable { mutableStateOf("") }
     var pinMessage by rememberSaveable { mutableStateOf("Backup ke liye PIN verify karein") }
     BackupPanel("Encrypted Backup", pinMessage) {
@@ -262,7 +284,7 @@ private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, succes
             onClick = {
                 when (val result = verifyPin(pin)) {
                     PinVerificationResult.Success -> success()
-                    PinVerificationResult.NotConfigured -> pinMessage = "Main app mein pehle PIN setup karein"
+                    PinVerificationResult.NotConfigured -> pinMessage = "Pehle PIN setup karein"
                     is PinVerificationResult.Locked -> pinMessage = "Security lock active hai"
                     is PinVerificationResult.Failure -> pinMessage = "Galat PIN. Attempts: ${result.attempts}"
                 }
@@ -277,22 +299,30 @@ private fun BackupPinScreen(verifyPin: (String) -> PinVerificationResult, succes
 }
 
 @Composable
-private fun BackupCreateScreen(message: String, busy: Boolean, requestExternalBackup: (String) -> Unit, close: () -> Unit) {
+private fun BackupCreateScreen(
+    message: String,
+    busy: Boolean,
+    requestExternalBackup: (String) -> Unit,
+    close: () -> Unit,
+) {
     var passphrase by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf("") }
     var localError by rememberSaveable { mutableStateOf<String?>(null) }
     BackupPanel("Portable Encrypted Backup", localError ?: message) {
-        Text("Business records aur Item/Unit/Plan/Payment Mode/Locker masters ek combined encrypted .gkb mein save honge.", color = Color.Gray)
+        Text("Business records, masters aur encrypted live photos ek combined .gkb mein save honge.", color = Color.Gray)
         OutlinedTextField(passphrase, { passphrase = it }, label = { Text("Recovery passphrase") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         OutlinedTextField(confirm, { confirm = it }, label = { Text("Passphrase dobara") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Button(
             onClick = {
-                if (passphrase != confirm) localError = "Dono passphrase match nahi kar rahe"
-                else {
-                    localError = null
-                    requestExternalBackup(passphrase)
-                    passphrase = ""
-                    confirm = ""
+                when {
+                    passphrase != confirm -> localError = "Dono passphrase match nahi kar rahe"
+                    passphrase.length < 12 -> localError = "Passphrase kam se kam 12 characters ka rakhein"
+                    else -> {
+                        localError = null
+                        requestExternalBackup(passphrase)
+                        passphrase = ""
+                        confirm = ""
+                    }
                 }
             },
             enabled = !busy,
