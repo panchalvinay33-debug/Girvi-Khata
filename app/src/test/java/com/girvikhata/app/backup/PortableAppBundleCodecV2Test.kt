@@ -11,6 +11,27 @@ import java.util.Base64
 
 class PortableAppBundleCodecV2Test {
     @Test
+    fun `v3 round trip preserves portable media bytes`() {
+        val snapshot = AppSnapshot.defaults()
+        val masters = MasterCatalog()
+        val media = linkedMapOf(
+            "customer-c1" to byteArrayOf(1, 2, 3),
+            "item-i1" to byteArrayOf(9, 8, 7, 6),
+        )
+
+        val decoded = PortableAppBundleCodec.decode(PortableAppBundleCodec.encodePortable(snapshot, masters, media))
+
+        assertEquals(snapshot, decoded.snapshot)
+        assertEquals(masters, decoded.masterCatalog)
+        assertTrue(decoded.containsPortableMasters)
+        assertTrue(decoded.encryptedMedia.isEmpty())
+        assertEquals(media.keys, decoded.portableMedia.keys)
+        media.forEach { (name, bytes) -> assertArrayEquals(bytes, decoded.portableMedia.getValue(name)) }
+        assertTrue(decoded.hasPortableMedia)
+        assertEquals(2, decoded.mediaCount)
+    }
+
+    @Test
     fun `v2 round trip preserves encrypted media bytes`() {
         val snapshot = AppSnapshot.defaults()
         val masters = MasterCatalog()
@@ -26,6 +47,7 @@ class PortableAppBundleCodecV2Test {
         assertTrue(decoded.containsPortableMasters)
         assertEquals(media.keys, decoded.encryptedMedia.keys)
         media.forEach { (name, bytes) -> assertArrayEquals(bytes, decoded.encryptedMedia.getValue(name)) }
+        assertTrue(decoded.portableMedia.isEmpty())
     }
 
     @Test
@@ -43,16 +65,25 @@ class PortableAppBundleCodecV2Test {
         assertEquals(snapshot, decoded.snapshot)
         assertEquals(masters, decoded.masterCatalog)
         assertTrue(decoded.encryptedMedia.isEmpty())
+        assertTrue(decoded.portableMedia.isEmpty())
     }
 
     @Test
-    fun `invalid media filename fails closed`() {
+    fun `invalid legacy media filename fails closed`() {
         val snapshot = AppSnapshot.defaults()
         val masters = MasterCatalog()
         val failure = runCatching {
             PortableAppBundleCodec.encode(snapshot, masters, mapOf("../photo.gkm" to byteArrayOf(1)))
         }.exceptionOrNull()
 
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
+    fun `invalid portable media id fails closed`() {
+        val failure = runCatching {
+            PortableAppBundleCodec.encodePortable(AppSnapshot.defaults(), MasterCatalog(), mapOf("../photo" to byteArrayOf(1)))
+        }.exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)
     }
 }
