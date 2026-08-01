@@ -5,19 +5,14 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -62,35 +57,20 @@ class MainActivity : FragmentActivity() {
                     BiometricAvailability.UNSUPPORTED
                 }
                 var storeState by remember { mutableStateOf(recordStore.loadState()) }
-                Box(Modifier.fillMaxSize()) {
-                    when (val state = storeState) {
-                        is RecordStoreLoadState.Ready -> GirviKhataRoot(
-                            securityPreferences = securityPreferences,
-                            recordStore = recordStore,
-                            biometricAvailability = biometricAvailability,
-                            lockSignal = lockSignal,
-                            requestBiometric = ::requestBiometric,
-                        )
-                        is RecordStoreLoadState.Corrupt -> DataRecoveryRequired(
-                            reason = state.reason,
-                            copiesChecked = state.safetyCopiesChecked,
-                            openRestore = { startActivity(Intent(this@MainActivity, RestoreActivity::class.java)) },
-                            retry = { storeState = recordStore.loadState() },
-                        )
-                    }
-                    ExtendedFloatingActionButton(
-                        onClick = { startActivity(Intent(this@MainActivity, PracticalEntryGateActivity::class.java)) },
-                        modifier = Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 92.dp),
-                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                        text = { Text("नया गिरवी / New") },
+                when (val state = storeState) {
+                    is RecordStoreLoadState.Ready -> GirviKhataRoot(
+                        securityPreferences = securityPreferences,
+                        recordStore = recordStore,
+                        biometricAvailability = biometricAvailability,
+                        lockSignal = lockSignal,
+                        requestBiometric = ::requestBiometric,
                     )
-                    FloatingActionButton(
-                        onClick = { startActivity(Intent(this@MainActivity, ToolsActivity::class.java)) },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 92.dp),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = "Reports, backup aur security tools")
-                    }
+                    is RecordStoreLoadState.Corrupt -> DataRecoveryRequired(
+                        reason = state.reason,
+                        copiesChecked = state.safetyCopiesChecked,
+                        openRestore = { startActivity(Intent(this@MainActivity, RestoreActivity::class.java)) },
+                        retry = { storeState = recordStore.loadState() },
+                    )
                 }
             }
         }
