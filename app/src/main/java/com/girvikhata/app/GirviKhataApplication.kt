@@ -3,6 +3,8 @@ package com.girvikhata.app
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import com.girvikhata.app.backup.AutoBackupConfig
+import com.girvikhata.app.backup.AutoBackupWorker
 import com.girvikhata.app.data.BusinessCommitObserver
 import com.girvikhata.app.data.InterruptedWriteRecoveryCoordinator
 import com.girvikhata.app.data.RestoreGenerationCoordinator
@@ -16,16 +18,17 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
 
-        // Finish an unambiguous staged cross-store restore before any ordinary business write recovery.
-        // Failure remains fail-closed because the pending restore intent blocks later coordinated writes.
         runCatching { RestoreGenerationCoordinator(this).reconcileOnStartup() }
-
-        // Reconcile normal interrupted writes, then repair only a stale business-write block from the
-        // verified encrypted authoritative snapshot. Active restore recovery is never bypassed.
         runCatching { InterruptedWriteRecoveryCoordinator(this).reconcileOnStartup() }
         runCatching { VerifiedWriteRecoveryRepair(this).repairIfBlocked() }
 
         commitObserver = BusinessCommitObserver(this).also { it.start() }
+
+        // WorkManager survives process restarts. The daily job is only scheduled after the owner has
+        // configured an off-device folder and recovery key in Recovery Center.
+        if (AutoBackupConfig(this).status().enabled) {
+            runCatching { AutoBackupWorker.scheduleDaily(this) }
+        }
     }
 
     override fun onTerminate() {
@@ -33,10 +36,8 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         super.onTerminate()
     }
 
-    // FLAG_SECURE is intentionally not applied in Alpha25B testing builds so owners can capture
-    // diagnostic screenshots while save/recovery behavior is being validated on real devices.
+    // FLAG_SECURE intentionally remains disabled while the owner validates recovery on real devices.
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-
     override fun onActivityStarted(activity: Activity) = Unit
     override fun onActivityResumed(activity: Activity) = Unit
     override fun onActivityPaused(activity: Activity) = Unit
