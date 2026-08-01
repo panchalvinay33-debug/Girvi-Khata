@@ -4,12 +4,16 @@ import android.app.Activity
 import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -18,9 +22,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -50,6 +56,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -94,27 +102,31 @@ class PracticalEntryActivity : FragmentActivity() {
                     onBack = ::finish,
                     onSave = { customer, girvi, customerPhoto, itemPhotos ->
                         runCatching {
-                            val importedIds = mutableListOf<String>()
-                            try {
-                                if (customerPhoto.isNotBlank()) {
-                                    val id = "customer-${customer.id}"
-                                    mediaVault.importPhoto(File(customerPhoto), id)
-                                    importedIds += id
+                            // Business data is authoritative and must never be blocked by an optional photo.
+                            val saved = repository.createGirvi(customer, girvi)
+                            check(saved.girvis.any { it.id == girvi.id }) { "Saved girvi verification failed" }
+                            check(saved.customers.any { it.id == customer.id }) { "Saved customer verification failed" }
+                            snapshot = saved
+
+                            val mediaWarnings = mutableListOf<String>()
+                            if (customerPhoto.isNotBlank()) {
+                                runCatching {
+                                    mediaVault.importPhoto(File(customerPhoto), "customer-${customer.id}")
+                                }.onFailure { mediaWarnings += "customer photo" }
+                            }
+                            itemPhotos.forEach { (itemId, path) ->
+                                if (path.isNotBlank()) {
+                                    runCatching {
+                                        mediaVault.importPhoto(File(path), "item-$itemId")
+                                    }.onFailure { mediaWarnings += "item photo" }
                                 }
-                                itemPhotos.forEach { (itemId, path) ->
-                                    if (path.isNotBlank()) {
-                                        val id = "item-$itemId"
-                                        mediaVault.importPhoto(File(path), id)
-                                        importedIds += id
-                                    }
-                                }
-                                val saved = repository.createGirvi(customer, girvi)
-                                check(saved.girvis.any { it.id == girvi.id }) { "Saved girvi verification failed" }
-                                check(saved.customers.any { it.id == customer.id }) { "Saved customer verification failed" }
-                                snapshot = saved
-                            } catch (failure: Throwable) {
-                                importedIds.forEach(mediaVault::delete)
-                                throw failure
+                            }
+                            if (mediaWarnings.isNotEmpty()) {
+                                Toast.makeText(
+                                    this@PracticalEntryActivity,
+                                    "Girvi saved. ${mediaWarnings.distinct().joinToString()} secure save नहीं हुई; data safe है.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
                             }
                         }.fold(
                             onSuccess = {
@@ -279,6 +291,7 @@ private fun BlueprintEntryScreen(
                     )
                     matchedCustomer?.let { Text("✓ मौजूदा ग्राहक मिला / Existing customer matched", color = MaterialTheme.colorScheme.primary) }
                     if (customerPhotoPath.isNotBlank()) {
+                        LocalPhotoPreview(customerPhotoPath, "ग्राहक की फोटो / Customer photo")
                         Text("✓ Live photo captured; save पर encrypted होगी")
                         TextButton(onClick = { File(customerPhotoPath).delete(); customerPhotoPath = "" }) { Text("फोटो हटाएँ / Remove") }
                     } else Text("Photo optional • live camera only")
@@ -413,15 +426,34 @@ private fun BlueprintEntryScreen(
             onDismissRequest = { showReview = false },
             title = { Text("एंट्री जाँचें / Review Entry") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("ग्राहक: ${customerName.trim()}")
-                    Text("मोबाइल: ${mobile.ifBlank { "—" }}")
-                    Text("तारीख: ${DateFormat.getDateInstance().format(Date(pledgeDate))}")
-                    Text("सामान: ${items.size}")
-                    Text("मूलधन: ${money(principalPaise)}")
-                    Text("Interest: ${modeLabel(terms.mode)} • ${periodLabel(terms.periodRule)}")
-                    Text("Monthly: ${money(InterestEngine.monthlyChargePaise(principalPaise, terms))}")
-                    if (terms.compoundEveryMonths != null) Text("Compound every ${terms.compoundEveryMonths} month(s)")
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 560.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        Text("ग्राहक: ${customerName.trim()}", fontWeight = FontWeight.Bold)
+                        Text("मोबाइल: ${mobile.ifBlank { "—" }}")
+                        Text("तारीख: ${DateFormat.getDateInstance().format(Date(pledgeDate))}")
+                        Text("मूलधन: ${money(principalPaise)}")
+                        Text("Interest: ${modeLabel(terms.mode)} • ${periodLabel(terms.periodRule)}")
+                        Text("Monthly: ${money(InterestEngine.monthlyChargePaise(principalPaise, terms))}")
+                        if (terms.compoundEveryMonths != null) Text("Compound every ${terms.compoundEveryMonths} month(s)")
+                    }
+                    if (customerPhotoPath.isNotBlank()) {
+                        item { LocalPhotoPreview(customerPhotoPath, "ग्राहक की फोटो / Customer photo", compact = true) }
+                    }
+                    item { Text("सामान: ${items.size}", fontWeight = FontWeight.Bold) }
+                    itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
+                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text("${index + 1}. ${item.name}", fontWeight = FontWeight.Bold)
+                                Text("${item.category} • Qty ${item.quantity} • ${if (item.advancedWeight) item.gross + " g" else item.weight + " " + item.unit}")
+                                if (item.description.isNotBlank()) Text(item.description)
+                                if (item.photoPath.isNotBlank()) LocalPhotoPreview(item.photoPath, "Item photo", compact = true)
+                                else Text("Photo नहीं ली", color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -536,11 +568,39 @@ private fun ItemEditor(
         }
         OutlinedTextField(item.description, { onChange(item.copy(description = it)) }, label = { Text("विवरण / Description") }, modifier = Modifier.fillMaxWidth())
         if (item.photoPath.isNotBlank()) {
+            LocalPhotoPreview(item.photoPath, "सामान की फोटो / Item photo")
             Text("✓ Live photo captured; save पर encrypted होगी")
             TextButton(onClick = { File(item.photoPath).delete(); onChange(item.copy(photoPath = "")) }) { Text("फोटो हटाएँ / Remove") }
         } else Text("Item photo optional • live camera only")
     }
 }
+
+@Composable
+private fun LocalPhotoPreview(path: String, label: String, compact: Boolean = false) {
+    val bitmap = remember(path) { decodePreviewBitmap(path) }
+    if (bitmap != null) {
+        Text(label, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = label,
+                modifier = Modifier.fillMaxWidth().height(if (compact) 130.dp else 190.dp),
+                contentScale = ContentScale.Crop,
+            )
+        }
+    } else {
+        Text("Photo preview उपलब्ध नहीं", color = MaterialTheme.colorScheme.error)
+    }
+}
+
+private fun decodePreviewBitmap(path: String): Bitmap? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+    var sample = 1
+    while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1200) sample *= 2
+    BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+}.getOrNull()
 
 @Composable
 private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
