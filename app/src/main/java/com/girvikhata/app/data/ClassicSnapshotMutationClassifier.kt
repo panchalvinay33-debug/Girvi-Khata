@@ -32,15 +32,26 @@ object ClassicSnapshotMutationClassifier {
         val customer = next.customers.firstOrNull { it.id == girvi.customerId }
             ?: error("New girvi customer missing")
         val existingCustomer = before.customers.firstOrNull { it.id == customer.id }
-        val expectedCustomers = if (existingCustomer == null) before.customers + customer else before.customers
-        require(next.customers.toSet() == expectedCustomers.toSet()) {
+
+        val unrelatedBefore = before.customers.filterNot { it.id == customer.id }.toSet()
+        val unrelatedNext = next.customers.filterNot { it.id == customer.id }.toSet()
+        require(unrelatedNext == unrelatedBefore) {
             "Girvi create contains unrelated customer changes"
         }
-        require(existingCustomer == null || existingCustomer == customer) {
-            "Existing customer changed during girvi create"
+        require(next.customers.count { it.id == customer.id } == 1) {
+            "Girvi create customer identity duplicated"
+        }
+        require(next.customers.size == before.customers.size + if (existingCustomer == null) 1 else 0) {
+            "Girvi create customer count invalid"
+        }
+
+        val mutation: VerifiedBusinessMutation = if (existingCustomer == null || existingCustomer == customer) {
+            VerifiedBusinessMutation.CreateGirviWithCustomer(customer, girvi)
+        } else {
+            CreateGirviWithCustomerUpsertMutation(customer, girvi)
         }
         return Classified(
-            mutation = VerifiedBusinessMutation.CreateGirviWithCustomer(customer, girvi),
+            mutation = mutation,
             title = "Classic girvi ${girvi.girviNumber} created",
         )
     }
