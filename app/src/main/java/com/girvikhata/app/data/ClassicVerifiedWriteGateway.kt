@@ -1,58 +1,30 @@
 package com.girvikhata.app.data
 
 /**
- * Narrow bridge used while the classic Compose UI still emits a complete next snapshot.
- * Every accepted change is converted to a typed mutation and executed by the verified coordinator.
- * The authoritative snapshot is always reloaded after success.
+ * Compatibility bridge while legacy Compose screens still emit a complete next snapshot.
+ *
+ * The rebuild keeps classification here, but normal business writes no longer depend on a stale
+ * UI fingerprint or a PENDING transaction journal. The typed mutation is applied to the latest
+ * encrypted snapshot by [AuthoritativeBusinessWriter], then read back and verified.
  */
 class ClassicVerifiedWriteGateway internal constructor(
     private val reloadAuthoritative: () -> AppSnapshot,
-    private val executeVerified: (VerifiedBusinessWriteRequest) -> Unit,
+    private val executeMutation: (VerifiedBusinessMutation) -> AppSnapshot,
 ) {
     constructor(
         records: EncryptedRecordStore,
-        coordinator: VerifiedBusinessWriteCoordinator,
+        @Suppress("UNUSED_PARAMETER") coordinator: VerifiedBusinessWriteCoordinator,
     ) : this(
         reloadAuthoritative = records::load,
-        executeVerified = { request -> coordinator.execute(request) },
+        executeMutation = AuthoritativeBusinessWriter(
+            records = records,
+            shadowFactory = null,
+        )::execute,
     )
 
     fun persist(screenSnapshot: AppSnapshot, nextSnapshot: AppSnapshot): AppSnapshot {
         val classified = classifySafely(screenSnapshot, nextSnapshot)
-        val practicalCreate = classified.mutation is CreateGirviWithCustomerUpsertMutation
-
-        // Practical Entry can stay open while startup recovery, contact import, or another
-        // activity refreshes the encrypted snapshot. Do not use that old screen fingerprint.
-        // Build the transaction against the authoritative snapshot immediately before write.
-        val authoritativeBase = if (practicalCreate) reloadAuthoritative() else screenSnapshot
-        val initialRequest = VerifiedBusinessWriteRequest(
-            expectedFingerprint = RelationalShadowFingerprint.sha256(authoritativeBase),
-            mutation = classified.mutation,
-            title = classified.title,
-        )
-
-        try {
-            executeVerified(initialRequest)
-        } catch (failure: Throwable) {
-            val staleSnapshot = failure.message?.contains(
-                "Business data changed before transaction",
-                ignoreCase = true,
-            ) == true
-            if (!practicalCreate || !staleSnapshot) throw failure
-
-            // One bounded retry handles a refresh that lands in the tiny interval between the
-            // authoritative read above and coordinator execution. The coordinator validates and
-            // repairs any interrupted practical-write intent before accepting this retry.
-            val latest = reloadAuthoritative()
-            executeVerified(
-                VerifiedBusinessWriteRequest(
-                    expectedFingerprint = RelationalShadowFingerprint.sha256(latest),
-                    mutation = classified.mutation,
-                    title = "${classified.title} • authoritative retry",
-                ),
-            )
-        }
-        return reloadAuthoritative()
+        return executeMutation(classified.mutation)
     }
 
     private fun classifySafely(before: AppSnapshot, next: AppSnapshot): ClassicSnapshotMutationClassifier.Classified {
