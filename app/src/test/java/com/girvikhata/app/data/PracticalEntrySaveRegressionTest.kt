@@ -6,7 +6,7 @@ import org.junit.Test
 
 class PracticalEntrySaveRegressionTest {
     @Test
-    fun practicalEntry_newCustomerAndGirvi_persistsThroughGateway() {
+    fun practicalEntry_newCustomerAndGirvi_persistsAsOneTypedMutation() {
         val before = AppSnapshot()
         val customer = CustomerRecord(name = "Test Customer", mobile = "9999999999")
         val girvi = GirviRecord(
@@ -22,12 +22,13 @@ class PracticalEntrySaveRegressionTest {
         )
         val next = before.copy(customers = listOf(customer), girvis = listOf(girvi))
         var authoritative = before
-        var executed: VerifiedBusinessWriteRequest? = null
+        var executed: VerifiedBusinessMutation? = null
         val gateway = ClassicVerifiedWriteGateway(
             reloadAuthoritative = { authoritative },
-            executeVerified = { request ->
-                executed = request
-                authoritative = request.mutation.apply(authoritative)
+            executeMutation = { mutation ->
+                executed = mutation
+                authoritative = mutation.apply(authoritative)
+                authoritative
             },
         )
 
@@ -36,7 +37,7 @@ class PracticalEntrySaveRegressionTest {
         assertEquals(1, saved.customers.size)
         assertEquals(1, saved.girvis.size)
         assertEquals(girvi.id, saved.girvis.single().id)
-        assertEquals("CUSTOMER_UPSERT_GIRVI_CREATE", executed?.mutation?.auditLabel)
+        assertEquals("CUSTOMER_UPSERT_GIRVI_CREATE", executed?.auditLabel)
     }
 
     @Test
@@ -59,7 +60,10 @@ class PracticalEntrySaveRegressionTest {
         var authoritative = before
         val gateway = ClassicVerifiedWriteGateway(
             reloadAuthoritative = { authoritative },
-            executeVerified = { request -> authoritative = request.mutation.apply(authoritative) },
+            executeMutation = { mutation ->
+                authoritative = mutation.apply(authoritative)
+                authoritative
+            },
         )
 
         val saved = gateway.persist(before, next)
