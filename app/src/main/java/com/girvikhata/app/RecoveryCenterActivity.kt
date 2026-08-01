@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
@@ -36,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,28 +55,42 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.backup.AutoBackupConfig
 import com.girvikhata.app.backup.AutoBackupWorker
 import com.girvikhata.app.backup.RecoveryKeyStore
+import com.girvikhata.app.security.BiometricAvailability
+import com.girvikhata.app.security.BiometricCapability
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.text.DateFormat
 import java.util.Date
 
 class RecoveryCenterActivity : FragmentActivity() {
+    private lateinit var security: SecurityPreferences
+    private lateinit var biometricCapability: BiometricCapability
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val security = SecurityPreferences(applicationContext)
+        security = SecurityPreferences(applicationContext)
+        biometricCapability = BiometricCapability(applicationContext)
         val keyStore = RecoveryKeyStore(applicationContext)
         val config = AutoBackupConfig(applicationContext)
 
         setContent {
             MaterialTheme {
+                val availability = if (security.sessionSettings().biometricUnlockEnabled) {
+                    biometricCapability.availability()
+                } else {
+                    BiometricAvailability.UNSUPPORTED
+                }
                 var unlocked by rememberSaveable { mutableStateOf(false) }
                 if (!unlocked) {
-                    RecoveryPinGate(
+                    RecoveryAuthGate(
+                        biometricAvailability = availability,
                         verify = { security.verify(it.toCharArray()) },
+                        requestBiometric = ::requestBiometric,
                         onSuccess = { unlocked = true },
                         onClose = ::finish,
                     )
@@ -93,6 +110,29 @@ class RecoveryCenterActivity : FragmentActivity() {
         }
     }
 
+    private fun requestBiometric(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        if (!security.sessionSettings().biometricUnlockEnabled) {
+            onError("Fingerprint unlock disabled hai")
+            return
+        }
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) = onError(errString.toString())
+                override fun onAuthenticationFailed() = onError("Fingerprint match nahi hua")
+            },
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Recovery Center")
+                .setSubtitle("Fingerprint se owner verify karein")
+                .setNegativeButtonText("Use PIN")
+                .build(),
+        )
+    }
+
     private fun configureFolder(uri: Uri, config: AutoBackupConfig) {
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         contentResolver.takePersistableUriPermission(uri, flags)
@@ -109,35 +149,57 @@ class RecoveryCenterActivity : FragmentActivity() {
 }
 
 @Composable
-private fun RecoveryPinGate(
+private fun RecoveryAuthGate(
+    biometricAvailability: BiometricAvailability,
     verify: (String) -> PinVerificationResult,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     onSuccess: () -> Unit,
     onClose: () -> Unit,
 ) {
+    val biometricFirst = biometricAvailability == BiometricAvailability.AVAILABLE
+    var usePin by rememberSaveable { mutableStateOf(!biometricFirst) }
     var pin by rememberSaveable { mutableStateOf("") }
-    var message by rememberSaveable { mutableStateOf("Recovery settings ke liye PIN verify karein") }
+    var message by rememberSaveable {
+        mutableStateOf(if (biometricFirst) "Fingerprint se owner verify karein" else "Recovery settings ke liye PIN verify karein")
+    }
     RecoveryShell("Recovery Center", message) {
-        OutlinedTextField(
-            value = pin,
-            onValueChange = { pin = it.filter(Char::isDigit).take(6) },
-            label = { Text("6-digit PIN") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            enabled = pin.length == 6,
-            onClick = {
-                when (val result = verify(pin)) {
-                    PinVerificationResult.Success -> onSuccess()
-                    PinVerificationResult.NotConfigured -> message = "Pehle PIN setup karein"
-                    is PinVerificationResult.Locked -> message = "Security lock active hai"
-                    is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
-                }
-                pin = ""
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("PIN Verify") }
+        if (!usePin && biometricFirst) {
+            Button(
+                onClick = { requestBiometric(onSuccess) { message = it } },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Fingerprint, null)
+                Text("  Fingerprint se Continue")
+            }
+            TextButton(onClick = { usePin = true; message = "6-digit PIN daalein" }, modifier = Modifier.fillMaxWidth()) {
+                Text("Use PIN instead")
+            }
+        } else {
+            OutlinedTextField(
+                value = pin,
+                onValueChange = { pin = it.filter(Char::isDigit).take(6) },
+                label = { Text("6-digit PIN") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                enabled = pin.length == 6,
+                onClick = {
+                    when (val result = verify(pin)) {
+                        PinVerificationResult.Success -> onSuccess()
+                        PinVerificationResult.NotConfigured -> message = "Pehle PIN setup karein"
+                        is PinVerificationResult.Locked -> message = "Security lock active hai"
+                        is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
+                    }
+                    pin = ""
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("PIN Verify") }
+            if (biometricFirst) TextButton(onClick = { usePin = false; pin = "" }, modifier = Modifier.fillMaxWidth()) {
+                Text("Use Fingerprint")
+            }
+        }
         OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
