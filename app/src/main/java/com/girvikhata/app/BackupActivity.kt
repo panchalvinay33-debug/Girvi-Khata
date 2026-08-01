@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
@@ -28,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.backup.AutoBackupConfig
 import com.girvikhata.app.backup.ExternalBackupVerification
@@ -52,6 +56,8 @@ import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.security.BiometricAvailability
+import com.girvikhata.app.security.BiometricCapability
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.io.ByteArrayOutputStream
@@ -62,6 +68,7 @@ import java.util.Locale
 
 class BackupActivity : FragmentActivity() {
     private lateinit var security: SecurityPreferences
+    private lateinit var biometricCapability: BiometricCapability
     private lateinit var store: EncryptedRecordStore
     private lateinit var masterStore: EncryptedMasterCatalogStore
     private lateinit var journal: DataSafetyJournal
@@ -79,6 +86,7 @@ class BackupActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         security = SecurityPreferences(applicationContext)
+        biometricCapability = BiometricCapability(applicationContext)
         store = EncryptedRecordStore(applicationContext)
         masterStore = EncryptedMasterCatalogStore(applicationContext)
         journal = DataSafetyJournal(applicationContext)
@@ -86,8 +94,15 @@ class BackupActivity : FragmentActivity() {
         autoConfig = AutoBackupConfig(applicationContext)
         setContent {
             MaterialTheme {
+                val availability = if (security.sessionSettings().biometricUnlockEnabled) {
+                    biometricCapability.availability()
+                } else {
+                    BiometricAvailability.UNSUPPORTED
+                }
                 BackupRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
+                    biometricAvailability = availability,
+                    requestBiometric = ::requestBiometric,
                     message = message,
                     busy = busy,
                     keyFingerprint = recoveryKeyStore.fingerprint(),
@@ -104,6 +119,29 @@ class BackupActivity : FragmentActivity() {
         pendingBackup?.clearSecret()
         pendingBackup = null
         super.onDestroy()
+    }
+
+    private fun requestBiometric(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        if (!security.sessionSettings().biometricUnlockEnabled) {
+            onError("Fingerprint unlock disabled hai")
+            return
+        }
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) = onError(errString.toString())
+                override fun onAuthenticationFailed() = onError("Fingerprint match nahi hua")
+            },
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Encrypted Backup")
+                .setSubtitle("Fingerprint se owner verify karein")
+                .setNegativeButtonText("Use PIN")
+                .build(),
+        )
     }
 
     private fun prepareAndChooseDestination() {
@@ -265,6 +303,8 @@ private data class BackupResult(
 @Composable
 private fun BackupRoot(
     verifyPin: (String) -> PinVerificationResult,
+    biometricAvailability: BiometricAvailability,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     message: String,
     busy: Boolean,
     keyFingerprint: String?,
@@ -274,42 +314,74 @@ private fun BackupRoot(
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
-    if (!unlocked) BackupPinScreen(verifyPin, { unlocked = true }, close)
-    else BackupCreateScreen(message, busy, keyFingerprint, keyReady, requestExternalBackup, openRecoveryCenter, close)
+    if (!unlocked) {
+        BackupUnlockScreen(
+            biometricAvailability,
+            verifyPin,
+            requestBiometric,
+            { unlocked = true },
+            close,
+        )
+    } else {
+        BackupCreateScreen(message, busy, keyFingerprint, keyReady, requestExternalBackup, openRecoveryCenter, close)
+    }
 }
 
 @Composable
-private fun BackupPinScreen(
+private fun BackupUnlockScreen(
+    biometricAvailability: BiometricAvailability,
     verifyPin: (String) -> PinVerificationResult,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     success: () -> Unit,
     close: () -> Unit,
 ) {
+    val biometricFirst = biometricAvailability == BiometricAvailability.AVAILABLE
+    var usePin by rememberSaveable { mutableStateOf(!biometricFirst) }
     var pin by rememberSaveable { mutableStateOf("") }
-    var pinMessage by rememberSaveable { mutableStateOf("Backup ke liye PIN verify karein") }
-    BackupPanel("Encrypted Backup", pinMessage) {
-        OutlinedTextField(
-            pin,
-            { pin = it.filter(Char::isDigit).take(6) },
-            label = { Text("6-digit PIN") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            onClick = {
-                when (val result = verifyPin(pin)) {
-                    PinVerificationResult.Success -> success()
-                    PinVerificationResult.NotConfigured -> pinMessage = "Pehle PIN setup karein"
-                    is PinVerificationResult.Locked -> pinMessage = "Security lock active hai"
-                    is PinVerificationResult.Failure -> pinMessage = "Galat PIN. Attempts: ${result.attempts}"
-                }
-                pin = ""
-            },
-            enabled = pin.length == 6,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5146B8)),
-        ) { Text("PIN Verify") }
+    var authMessage by rememberSaveable {
+        mutableStateOf(if (biometricFirst) "Fingerprint se owner verify karein" else "Backup ke liye PIN verify karein")
+    }
+    BackupPanel("Encrypted Backup", authMessage) {
+        if (!usePin && biometricFirst) {
+            Button(
+                onClick = { requestBiometric(success) { authMessage = it } },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5146B8)),
+            ) {
+                Icon(Icons.Default.Fingerprint, null)
+                Text("  Fingerprint se Continue")
+            }
+            TextButton(onClick = { usePin = true; authMessage = "6-digit PIN daalein" }, modifier = Modifier.fillMaxWidth()) {
+                Text("Use PIN instead")
+            }
+        } else {
+            OutlinedTextField(
+                pin,
+                { pin = it.filter(Char::isDigit).take(6) },
+                label = { Text("6-digit PIN") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    when (val result = verifyPin(pin)) {
+                        PinVerificationResult.Success -> success()
+                        PinVerificationResult.NotConfigured -> authMessage = "Pehle PIN setup karein"
+                        is PinVerificationResult.Locked -> authMessage = "Security lock active hai"
+                        is PinVerificationResult.Failure -> authMessage = "Galat PIN. Attempts: ${result.attempts}"
+                    }
+                    pin = ""
+                },
+                enabled = pin.length == 6,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5146B8)),
+            ) { Text("PIN Verify") }
+            if (biometricFirst) TextButton(onClick = { usePin = false; pin = "" }, modifier = Modifier.fillMaxWidth()) {
+                Text("Use Fingerprint")
+            }
+        }
         OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
