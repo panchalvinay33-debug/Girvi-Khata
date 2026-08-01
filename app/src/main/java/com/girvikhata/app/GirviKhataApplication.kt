@@ -5,14 +5,16 @@ import android.app.Application
 import android.os.Bundle
 import com.girvikhata.app.backup.AutoBackupConfig
 import com.girvikhata.app.backup.AutoBackupWorker
+import com.girvikhata.app.backup.MediaCommitObserver
 import com.girvikhata.app.data.BusinessCommitObserver
 import com.girvikhata.app.data.InterruptedWriteRecoveryCoordinator
 import com.girvikhata.app.data.RestoreGenerationCoordinator
 import com.girvikhata.app.data.VerifiedWriteRecoveryRepair
 
-/** Process-lifetime verified business-commit observer. */
+/** Process-lifetime verified business/media commit observers. */
 class GirviKhataApplication : Application(), Application.ActivityLifecycleCallbacks {
     private lateinit var commitObserver: BusinessCommitObserver
+    private lateinit var mediaObserver: MediaCommitObserver
 
     override fun onCreate() {
         super.onCreate()
@@ -23,9 +25,8 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         runCatching { VerifiedWriteRecoveryRepair(this).repairIfBlocked() }
 
         commitObserver = BusinessCommitObserver(this).also { it.start() }
+        mediaObserver = MediaCommitObserver(this).also { it.start() }
 
-        // WorkManager survives process restarts. The daily job is only scheduled after the owner has
-        // configured an off-device folder and recovery key in Recovery Center.
         if (AutoBackupConfig(this).status().enabled) {
             runCatching { AutoBackupWorker.scheduleDaily(this) }
         }
@@ -33,6 +34,7 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
 
     override fun onTerminate() {
         if (::commitObserver.isInitialized) commitObserver.stop()
+        if (::mediaObserver.isInitialized) mediaObserver.stop()
         super.onTerminate()
     }
 
