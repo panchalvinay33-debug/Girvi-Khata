@@ -14,41 +14,39 @@ class ClassicVerifiedWriteGateway internal constructor(
         coordinator: VerifiedBusinessWriteCoordinator,
     ) : this(
         reloadAuthoritative = records::load,
-        executeVerified = { request ->
-            try {
-                coordinator.execute(request)
-            } catch (failure: Throwable) {
-                val practicalCreate = request.mutation is CreateGirviWithCustomerUpsertMutation
-                val staleSnapshot = failure.message?.contains(
-                    "Business data changed before transaction",
-                    ignoreCase = true,
-                ) == true
-                if (!practicalCreate || !staleSnapshot) throw failure
-
-                // The first rejected attempt may have left a PENDING intent. The coordinator's
-                // recovery path reconciles that metadata before this one-time retry. No business
-                // rows are discarded; the encrypted authoritative snapshot remains source of truth.
-                val latest = records.load()
-                coordinator.execute(
-                    VerifiedBusinessWriteRequest(
-                        expectedFingerprint = RelationalShadowFingerprint.sha256(latest),
-                        mutation = request.mutation,
-                        title = "${request.title} • authoritative retry",
-                    ),
-                )
-            }
-        },
+        executeVerified = { request -> coordinator.execute(request) },
     )
 
     fun persist(screenSnapshot: AppSnapshot, nextSnapshot: AppSnapshot): AppSnapshot {
         val classified = classifySafely(screenSnapshot, nextSnapshot)
-        executeVerified(
-            VerifiedBusinessWriteRequest(
-                expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
-                mutation = classified.mutation,
-                title = classified.title,
-            ),
+        val initialRequest = VerifiedBusinessWriteRequest(
+            expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
+            mutation = classified.mutation,
+            title = classified.title,
         )
+
+        try {
+            executeVerified(initialRequest)
+        } catch (failure: Throwable) {
+            val practicalCreate = classified.mutation is CreateGirviWithCustomerUpsertMutation
+            val staleSnapshot = failure.message?.contains(
+                "Business data changed before transaction",
+                ignoreCase = true,
+            ) == true
+            if (!practicalCreate || !staleSnapshot) throw failure
+
+            // The first rejected attempt may have left a PENDING intent. The coordinator's
+            // recovery path reconciles that metadata before this one-time retry. No business
+            // rows are discarded; the encrypted authoritative snapshot remains source of truth.
+            val latest = reloadAuthoritative()
+            executeVerified(
+                VerifiedBusinessWriteRequest(
+                    expectedFingerprint = RelationalShadowFingerprint.sha256(latest),
+                    mutation = classified.mutation,
+                    title = "${classified.title} • authoritative retry",
+                ),
+            )
+        }
         return reloadAuthoritative()
     }
 
