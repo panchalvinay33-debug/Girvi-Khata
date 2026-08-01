@@ -28,26 +28,38 @@ class SecureMediaVault(
         require(source.exists() && source.isFile) { "Photo file missing" }
         require(source.length() in 1L..MAX_PHOTO_BYTES) { "Photo size invalid" }
         val plaintext = source.readBytes()
-        val aad = aad(mediaId)
-        val encrypted = keyManager.encrypt(plaintext, aad)
+        return try {
+            importPhotoBytes(mediaId, plaintext)
+        } finally {
+            plaintext.fill(0)
+            source.delete()
+        }
+    }
+
+    /** Re-encrypt portable photo bytes under this device's Android Keystore key. */
+    @Synchronized
+    fun importPhotoBytes(mediaId: String, plaintext: ByteArray): File {
+        require(plaintext.size in 1..MAX_PHOTO_BYTES.toInt()) { "Photo size invalid" }
+        val encrypted = keyManager.encrypt(plaintext, aad(mediaId))
         val target = fileFor(mediaId)
         val temporary = File(root, ".$mediaId.tmp")
         runCatching {
             writeEnvelope(temporary, encrypted)
             val verified = readEnvelope(temporary, mediaId)
             check(verified.contentEquals(plaintext)) { "Encrypted photo verification failed" }
+            verified.fill(0)
             if (target.exists() && !target.delete()) error("Old encrypted photo replace failed")
             if (!temporary.renameTo(target)) {
                 temporary.copyTo(target, overwrite = true)
                 temporary.delete()
             }
-            check(readEnvelope(target, mediaId).contentEquals(plaintext)) { "Stored photo verification failed" }
+            val finalRead = readEnvelope(target, mediaId)
+            check(finalRead.contentEquals(plaintext)) { "Stored photo verification failed" }
+            finalRead.fill(0)
         }.onFailure {
             temporary.delete()
             throw it
         }
-        plaintext.fill(0)
-        source.delete()
         return target
     }
 
@@ -60,6 +72,8 @@ class SecureMediaVault(
     fun delete(mediaId: String): Boolean = !fileFor(mediaId).exists() || fileFor(mediaId).delete()
 
     fun allEncryptedFiles(): List<File> = root.listFiles()?.filter { it.isFile && it.extension == EXTENSION }.orEmpty()
+
+    fun allMediaIds(): List<String> = allEncryptedFiles().map { it.nameWithoutExtension }.sorted()
 
     fun cleanupTemps() {
         temp.listFiles()?.filter(File::isFile)?.forEach { file ->
@@ -74,8 +88,6 @@ class SecureMediaVault(
 
     private fun writeEnvelope(target: File, payload: EncryptedPayload) {
         FileOutputStream(target).use { stream ->
-            // Do not wrap this in another `use`: closing the buffered wrapper closes `stream`, and
-            // calling fd.sync() afterwards then throws SyncFailedException on Android.
             val out = DataOutputStream(BufferedOutputStream(stream))
             out.writeInt(MAGIC)
             out.writeInt(payload.iv.size)
@@ -83,8 +95,6 @@ class SecureMediaVault(
             out.writeInt(payload.ciphertext.size)
             out.write(payload.ciphertext)
             out.flush()
-            // Durability hint. Read-back verification below remains mandatory even on devices/filesystems
-            // where an explicit fsync is unavailable.
             runCatching { stream.fd.sync() }
         }
     }
