@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Restore
@@ -17,15 +18,18 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -47,6 +51,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         securityPreferences = SecurityPreferences(applicationContext)
         val recordStore = EncryptedRecordStore(applicationContext)
+        val profileStore = OwnerBusinessProfileStore(applicationContext)
         biometricCapability = BiometricCapability(applicationContext)
         setContent {
             MaterialTheme {
@@ -59,17 +64,29 @@ class MainActivity : FragmentActivity() {
                 }
                 var storeState by remember { mutableStateOf(recordStore.loadState()) }
                 var startFreshKhata by remember { mutableStateOf(false) }
+                var setupProfile by remember { mutableStateOf(false) }
+                var profile by remember { mutableStateOf(profileStore.load()) }
+
                 when (val state = storeState) {
                     is RecordStoreLoadState.Ready -> {
                         val untouchedFreshInstall = !securityPreferences.hasPin() &&
                             state.snapshot.customers.isEmpty() && state.snapshot.girvis.isEmpty()
-                        if (untouchedFreshInstall && !startFreshKhata) {
-                            FirstRunRecoveryChoice(
-                                newKhata = { startFreshKhata = true },
+                        when {
+                            untouchedFreshInstall && setupProfile -> BusinessProfileSetup(
+                                initial = profile,
+                                save = { updated ->
+                                    profileStore.save(updated)
+                                    profile = profileStore.load()
+                                    setupProfile = false
+                                    startFreshKhata = true
+                                },
+                                back = { setupProfile = false },
+                            )
+                            untouchedFreshInstall && !startFreshKhata -> FirstRunRecoveryChoice(
+                                newKhata = { setupProfile = true },
                                 recoverExisting = { startActivity(Intent(this@MainActivity, RestoreActivity::class.java)) },
                             )
-                        } else {
-                            BlueprintGirviKhataRoot(
+                            else -> BlueprintGirviKhataRoot(
                                 securityPreferences = securityPreferences,
                                 recordStore = recordStore,
                                 biometricAvailability = biometricAvailability,
@@ -126,8 +143,8 @@ class MainActivity : FragmentActivity() {
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Girvi Khata Unlock")
-                .setSubtitle("Apna fingerprint use karein")
-                .setNegativeButtonText("PIN use karein")
+                .setSubtitle("Fingerprint se turant unlock karein")
+                .setNegativeButtonText("Use PIN")
                 .build(),
         )
     }
@@ -141,18 +158,81 @@ private fun FirstRunRecoveryChoice(newKhata: () -> Unit, recoverExisting: () -> 
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("Girvi Khata", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Naya khata shuru karein ya purana mobile ka data recover karein")
+        Text("Naya business setup karein ya purana khata recover karein")
         Card(Modifier.fillMaxWidth().padding(vertical = 18.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = newKhata, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.AddCircle, null)
-                    Text("  Naya Khata Setup")
+                    Text("  Naya Dukaan / User Setup")
                 }
                 OutlinedButton(onClick = recoverExisting, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Restore, null)
                     Text("  Purana Khata Recover Karein")
                 }
-                Text("Recovery ke liye encrypted .gkb backup aur Recovery Key chahiye.")
+                Text("Setup ke baad owner PIN banega aur supported phone par fingerprint unlock available rahega.")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun BusinessProfileSetup(
+    initial: OwnerBusinessProfile,
+    save: (OwnerBusinessProfile) -> Unit,
+    back: () -> Unit,
+) {
+    var businessName by rememberSaveable { mutableStateOf(initial.businessName) }
+    var ownerName by rememberSaveable { mutableStateOf(initial.ownerName) }
+    var mobile by rememberSaveable { mutableStateOf(initial.mobile) }
+    var address by rememberSaveable { mutableStateOf(initial.address) }
+    var message by rememberSaveable { mutableStateOf("Ye naam app ki owner/business identity rahegi") }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Dukaan Setup", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(message)
+        Card(Modifier.fillMaxWidth().padding(vertical = 18.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = businessName,
+                    onValueChange = { businessName = it.take(60) },
+                    label = { Text("Dukaan / Business ka naam *") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = ownerName,
+                    onValueChange = { ownerName = it.take(60) },
+                    label = { Text("Owner / User ka naam *") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = mobile,
+                    onValueChange = { mobile = it.filter(Char::isDigit).take(10) },
+                    label = { Text("Mobile (optional)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it.take(180) },
+                    label = { Text("Dukaan ka address (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        runCatching {
+                            save(OwnerBusinessProfile(businessName, ownerName, mobile, address))
+                        }.onFailure { message = it.message ?: "Profile save nahi hua" }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Continue → Security Setup") }
+                OutlinedButton(onClick = back, modifier = Modifier.fillMaxWidth()) { Text("Back") }
             }
         }
     }
