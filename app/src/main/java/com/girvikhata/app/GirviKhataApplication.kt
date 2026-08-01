@@ -3,12 +3,11 @@ package com.girvikhata.app
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
-import android.view.WindowManager
 import com.girvikhata.app.data.BusinessCommitObserver
 import com.girvikhata.app.data.InterruptedWriteRecoveryCoordinator
 import com.girvikhata.app.data.RestoreGenerationCoordinator
 
-/** Central privacy policy plus process-lifetime verified business-commit observer. */
+/** Process-lifetime verified business-commit observer. */
 class GirviKhataApplication : Application(), Application.ActivityLifecycleCallbacks {
     private lateinit var commitObserver: BusinessCommitObserver
 
@@ -32,9 +31,9 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         super.onTerminate()
     }
 
-    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-        activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-    }
+    // FLAG_SECURE is intentionally not applied in Alpha25B testing builds so owners can capture
+    // diagnostic screenshots while save/recovery behavior is being validated on real devices.
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
 
     override fun onActivityStarted(activity: Activity) = Unit
     override fun onActivityResumed(activity: Activity) = Unit
