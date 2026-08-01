@@ -20,76 +20,21 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <activity
-            android:name=".PracticalEntryGateActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".PracticalEntryActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".RelationalShadowActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".AdvancedWorkflowActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".MasterWorkflowActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".MasterCatalogActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".SettlementCenterActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".OwnerSettingsActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".DataSafetyActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".PinRecoveryActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".RestoreActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".BackupActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".ReportsActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".ToolsActivity"
-            android:exported="false"
-            android:label="Girvi Khata Tools"
-            android:screenOrientation="portrait" />
+        <activity android:name=".RecoveryCenterActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".PracticalEntryGateActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".PracticalEntryActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".RelationalShadowActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".AdvancedWorkflowActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".MasterWorkflowActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".MasterCatalogActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".SettlementCenterActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".OwnerSettingsActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".DataSafetyActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".PinRecoveryActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".RestoreActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".BackupActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".ReportsActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".ToolsActivity" android:exported="false" android:label="Girvi Khata Tools" android:screenOrientation="portrait" />
 
         <activity
             android:name=".MainActivity"
