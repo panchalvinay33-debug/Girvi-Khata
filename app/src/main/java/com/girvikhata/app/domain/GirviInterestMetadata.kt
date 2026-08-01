@@ -22,7 +22,7 @@ object GirviInterestMetadata {
 
     fun strip(description: String?): String {
         if (description.isNullOrBlank()) return ""
-        var value = description
+        var value: String = description
         while (true) {
             val start = value.indexOf(START)
             if (start < 0) break
