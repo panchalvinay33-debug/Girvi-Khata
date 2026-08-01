@@ -31,6 +31,8 @@ class AutoBackupWorker(
         if (!status.enabled || status.folderUri.isNullOrBlank()) return Result.success()
         config.recordAttempt()
 
+        var createdTarget: DocumentFile? = null
+        var verifiedTarget = false
         return runCatching {
             val key = RecoveryKeyStore(applicationContext).reveal()
             val secret = key.toCharArray()
@@ -49,6 +51,7 @@ class AutoBackupWorker(
                 val fileName = "girvi-khata-auto-$stamp.gkb"
                 val target = folder.createFile("application/octet-stream", fileName)
                     ?: error("Automatic backup file create nahi hui")
+                createdTarget = target
                 val resolver = applicationContext.contentResolver
                 resolver.openOutputStream(target.uri, "wt")?.use { out ->
                     out.write(encrypted)
@@ -59,11 +62,17 @@ class AutoBackupWorker(
                     ?: error("Automatic backup verify read nahi hui")
                 require(written.contentEquals(encrypted)) { "Automatic backup byte verification failed" }
                 val decrypted = PortableBackupCrypto.decrypt(written, secret)
+                require(decrypted.payload.contentEquals(payload)) { "Automatic backup payload verification failed" }
                 val decoded = PortableAppBundleCodec.decode(decrypted.payload)
-                require(decoded.snapshot.customers.size == snapshot.customers.size) { "Automatic backup customer verification failed" }
-                require(decoded.snapshot.girvis.size == snapshot.girvis.size) { "Automatic backup girvi verification failed" }
+                require(SnapshotPortableCodec.encode(decoded.snapshot).contentEquals(SnapshotPortableCodec.encode(snapshot))) {
+                    "Automatic backup business verification failed"
+                }
                 require(decoded.masterCatalog == masters) { "Automatic backup master verification failed" }
-                require(decoded.portableMedia.size == media.size) { "Automatic backup photo verification failed" }
+                require(decoded.portableMedia.keys == media.keys) { "Automatic backup photo index verification failed" }
+                require(decoded.portableMedia.all { (id, bytes) -> media[id]?.contentEquals(bytes) == true }) {
+                    "Automatic backup photo content verification failed"
+                }
+                verifiedTarget = true
 
                 val generations = pruneGenerations(folder)
                 val sha = PortableBackupCrypto.sha256(written)
@@ -76,13 +85,13 @@ class AutoBackupWorker(
                         snapshot.girvis.sumOf { it.payments.size },
                     )
                 }
-                secret.fill('\u0000')
                 Result.success()
             } finally {
                 PortableMediaSupport.clear(media)
                 secret.fill('\u0000')
             }
         }.getOrElse { failure ->
+            if (!verifiedTarget) runCatching { createdTarget?.delete() }
             config.recordFailure(failure.message ?: failure::class.java.simpleName)
             Result.retry()
         }
@@ -93,7 +102,9 @@ class AutoBackupWorker(
             .filter { it.isFile && it.name?.startsWith("girvi-khata-auto-") == true && it.name?.endsWith(".gkb") == true }
             .sortedByDescending { it.lastModified() }
         backups.drop(MAX_GENERATIONS).forEach { runCatching { it.delete() } }
-        return backups.take(MAX_GENERATIONS).size
+        return folder.listFiles().count {
+            it.isFile && it.name?.startsWith("girvi-khata-auto-") == true && it.name?.endsWith(".gkb") == true
+        }.coerceAtMost(MAX_GENERATIONS)
     }
 
     companion object {
