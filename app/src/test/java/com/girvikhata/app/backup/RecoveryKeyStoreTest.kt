@@ -7,10 +7,20 @@ import java.security.SecureRandom
 
 class RecoveryKeyStoreTest {
     @Test
-    fun `generated recovery key validates`() {
-        val key = RecoveryKeyStore.generate(SecureRandom(byteArrayOf(1, 2, 3, 4)))
-        assertTrue(RecoveryKeyStore.isValid(key))
-        assertTrue(key.startsWith("GK-"))
+    fun `generated recovery key validates and is portable-crypto compatible`() {
+        repeat(100) { seed ->
+            val key = RecoveryKeyStore.generate(SecureRandom(byteArrayOf(seed.toByte(), 2, 3, 4)))
+            assertTrue(RecoveryKeyStore.isValid(key))
+            assertTrue(key.startsWith("GK-"))
+            assertTrue(key.any(Char::isLetter))
+            assertTrue(key.any(Char::isDigit))
+
+            // PortableBackupCrypto owns the actual new-device backup envelope policy.
+            val payload = "recovery-$seed".toByteArray()
+            val encrypted = PortableBackupCrypto.encrypt(payload, key.toCharArray(), schemaVersion = 3)
+            val decrypted = PortableBackupCrypto.decrypt(encrypted, key.toCharArray())
+            assertTrue(decrypted.payload.contentEquals(payload))
+        }
     }
 
     @Test
