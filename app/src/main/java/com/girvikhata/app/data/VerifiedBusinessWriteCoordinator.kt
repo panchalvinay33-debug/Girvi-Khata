@@ -14,10 +14,15 @@ class VerifiedBusinessWriteCoordinator(
     private val observationStore: VerifiedWriteObservationStore = VerifiedWriteObservationStore(context.applicationContext),
     private val intentStore: VerifiedWriteIntentStore = VerifiedWriteIntentStore(context.applicationContext),
     private val recoveryCoordinator: InterruptedWriteRecoveryCoordinator = InterruptedWriteRecoveryCoordinator(context.applicationContext),
+    private val recoveryRepair: VerifiedWriteRecoveryRepair = VerifiedWriteRecoveryRepair(context.applicationContext, records = records),
 ) {
     @Synchronized
     fun execute(request: VerifiedBusinessWriteRequest): VerifiedBusinessWriteResult {
-        val recovery = recoveryCoordinator.reconcileOnStartup()
+        var recovery = recoveryCoordinator.reconcileOnStartup()
+        if (recovery.action == InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY) {
+            recoveryRepair.repairIfBlocked()
+            recovery = recoveryCoordinator.reconcileOnStartup()
+        }
         require(recovery.action != InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY) {
             "Unresolved interrupted transaction ${recovery.transactionId ?: "unknown"}; recovery required before new writes"
         }
