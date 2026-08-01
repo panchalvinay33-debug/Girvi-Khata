@@ -76,10 +76,8 @@ class PracticalEntryActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val records = EncryptedRecordStore(applicationContext)
-        val gateway = ClassicVerifiedWriteGateway(
-            records = records,
-            coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = records),
-        )
+        val coordinator = VerifiedBusinessWriteCoordinator(applicationContext, records = records)
+        val gateway = ClassicVerifiedWriteGateway(records = records, coordinator = coordinator)
         setContent {
             MaterialTheme {
                 var snapshot by remember { mutableStateOf(records.load()) }
@@ -87,14 +85,32 @@ class PracticalEntryActivity : FragmentActivity() {
                     snapshot = snapshot,
                     onBack = ::finish,
                     onSave = { customer, girvi ->
-                        val customers = if (snapshot.customers.any { it.id == customer.id }) {
-                            snapshot.customers.map { if (it.id == customer.id) customer else it }
-                        } else snapshot.customers + customer
-                        snapshot = gateway.persist(
-                            snapshot,
-                            snapshot.copy(customers = customers, girvis = snapshot.girvis + girvi),
+                        runCatching {
+                            val authoritativeBefore = records.load()
+                            val customers = if (authoritativeBefore.customers.any { it.id == customer.id }) {
+                                authoritativeBefore.customers.map { if (it.id == customer.id) customer else it }
+                            } else authoritativeBefore.customers + customer
+                            val saved = gateway.persist(
+                                authoritativeBefore,
+                                authoritativeBefore.copy(customers = customers, girvis = authoritativeBefore.girvis + girvi),
+                            )
+                            check(saved.girvis.any { it.id == girvi.id }) { "authoritative reload missing new girvi" }
+                            check(saved.customers.any { it.id == customer.id }) { "authoritative reload missing customer" }
+                            snapshot = saved
+                        }.fold(
+                            onSuccess = {
+                                setResult(Activity.RESULT_OK)
+                                finish()
+                                null
+                            },
+                            onFailure = { failure ->
+                                val intent = runCatching { coordinator.latestIntent() }.getOrNull()
+                                val intentInfo = intent?.let {
+                                    " intent=${it.state}/${it.mutationLabel}/${it.transactionId.take(8)}"
+                                }.orEmpty()
+                                "SAVE-25B-REAL: ${failure.message ?: failure::class.java.simpleName}$intentInfo"
+                            },
                         )
-                        finish()
                     },
                 )
             }
@@ -123,7 +139,7 @@ private enum class PhotoTarget { CUSTOMER, ITEM }
 private fun PracticalEntryScreen(
     snapshot: AppSnapshot,
     onBack: () -> Unit,
-    onSave: (CustomerRecord, GirviRecord) -> Unit,
+    onSave: (CustomerRecord, GirviRecord) -> String?,
 ) {
     val context = LocalContext.current
     var customerName by rememberSaveable { mutableStateOf("") }
@@ -176,13 +192,15 @@ private fun PracticalEntryScreen(
     }
 
     fun takePhoto(target: PhotoTarget, itemIndex: Int = -1) {
-        val file = PrivateMediaVault.newPhotoFile(context, if (target == PhotoTarget.CUSTOMER) "customer" else "item")
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        pendingPhotoTarget = target
-        pendingItemIndex = itemIndex
-        pendingPhotoUri = uri
-        pendingPhotoPath = file.absolutePath
-        camera.launch(uri)
+        runCatching {
+            val file = PrivateMediaVault.newPhotoFile(context, if (target == PhotoTarget.CUSTOMER) "customer" else "item")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            pendingPhotoTarget = target
+            pendingItemIndex = itemIndex
+            pendingPhotoUri = uri
+            pendingPhotoPath = file.absolutePath
+            camera.launch(uri)
+        }.onFailure { error = "PHOTO-25B: ${it.message ?: it::class.java.simpleName}" }
     }
 
     Scaffold(
@@ -209,7 +227,9 @@ private fun PracticalEntryScreen(
                                 singleLine = true,
                             )
                             IconButton(onClick = {
-                                contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                                runCatching {
+                                    contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                                }.onFailure { error = "CONTACT-25B: ${it.message ?: it::class.java.simpleName}" }
                             }) {
                                 Icon(Icons.Default.Contacts, contentDescription = "Contact se customer laayein")
                             }
@@ -294,7 +314,11 @@ private fun PracticalEntryScreen(
                         Icon(Icons.Default.Add, null)
                         Text(" एक और सामान / Add Item")
                     }
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    error?.let {
+                        Card(Modifier.fillMaxWidth()) {
+                            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp), fontWeight = FontWeight.Bold)
+                        }
+                    }
                     Button(
                         onClick = {
                             error = validatePracticalEntry(customerName, amount, monthlyRate, pledgeDate, items)
@@ -327,53 +351,61 @@ private fun PracticalEntryScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val existing = selectedCustomerId?.let { id -> snapshot.customers.firstOrNull { it.id == id } }
-                        ?: CustomerMatcher.findBestMatch(
-                            snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) },
-                            customerName,
-                            mobile,
-                        )?.let { match -> snapshot.customers.firstOrNull { it.id == match.id } }
-                    val customer = (existing ?: CustomerRecord(name = customerName.trim())).copy(
-                        name = customerName.trim(),
-                        mobile = normalizeMobileInput(mobile),
-                        address = address.trim(),
-                    )
-                    PrivateMediaVault.attachCustomerPhoto(context, customer.id, customerPhotoPath)
-                    val records = items.map { draft ->
-                        PrivateMediaVault.attachItemPhoto(context, draft.id, draft.photoPath)
-                        GirviItemRecord(
-                            id = draft.id,
-                            categoryName = draft.category,
-                            itemName = draft.name.trim(),
-                            quantity = draft.quantity.toInt(),
-                            grossWeightGrams = if (draft.advancedWeight) draft.gross else draft.weight,
-                            deductionWeightGrams = if (draft.advancedWeight) draft.deduction else "",
-                            description = buildString {
-                                append(draft.description.trim())
-                                if (!draft.advancedWeight && draft.unit.isNotBlank()) {
-                                    if (isNotBlank()) append(" • ")
-                                    append("Weight unit: ${draft.unit}")
-                                }
-                            },
+                    val failureMessage = runCatching {
+                        val existing = selectedCustomerId?.let { id -> snapshot.customers.firstOrNull { it.id == id } }
+                            ?: CustomerMatcher.findBestMatch(
+                                snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) },
+                                customerName,
+                                mobile,
+                            )?.let { match -> snapshot.customers.firstOrNull { it.id == match.id } }
+                        val customer = (existing ?: CustomerRecord(name = customerName.trim())).copy(
+                            name = customerName.trim(),
+                            mobile = normalizeMobileInput(mobile),
+                            address = address.trim(),
                         )
-                    }
-                    val first = records.first()
-                    onSave(
-                        customer,
-                        GirviRecord(
-                            girviNumber = GirviSequence.nextNumber(snapshot.girvis.map { it.girviNumber }),
-                            customerId = customer.id,
-                            customerName = customer.name,
-                            categoryName = first.categoryName,
-                            itemName = first.itemName,
-                            weightGrams = first.grossWeightGrams,
-                            principalPaise = (principal * 100).roundToLong(),
-                            monthlyRateBasisPoints = (rate * 100).roundToLong().toInt(),
-                            createdAt = pledgeDate,
-                            items = records,
-                        ),
+                        PrivateMediaVault.attachCustomerPhoto(context, customer.id, customerPhotoPath)
+                        val records = items.map { draft ->
+                            PrivateMediaVault.attachItemPhoto(context, draft.id, draft.photoPath)
+                            GirviItemRecord(
+                                id = draft.id,
+                                categoryName = draft.category,
+                                itemName = draft.name.trim(),
+                                quantity = draft.quantity.toInt(),
+                                grossWeightGrams = if (draft.advancedWeight) draft.gross else draft.weight,
+                                deductionWeightGrams = if (draft.advancedWeight) draft.deduction else "",
+                                description = buildString {
+                                    append(draft.description.trim())
+                                    if (!draft.advancedWeight && draft.unit.isNotBlank()) {
+                                        if (isNotBlank()) append(" • ")
+                                        append("Weight unit: ${draft.unit}")
+                                    }
+                                },
+                            )
+                        }
+                        val first = records.first()
+                        onSave(
+                            customer,
+                            GirviRecord(
+                                girviNumber = GirviSequence.nextNumber(snapshot.girvis.map { it.girviNumber }),
+                                customerId = customer.id,
+                                customerName = customer.name,
+                                categoryName = first.categoryName,
+                                itemName = first.itemName,
+                                weightGrams = first.grossWeightGrams,
+                                principalPaise = (principal * 100).roundToLong(),
+                                monthlyRateBasisPoints = (rate * 100).roundToLong().toInt(),
+                                createdAt = pledgeDate,
+                                items = records,
+                            ),
+                        )
+                    }.fold(
+                        onSuccess = { it },
+                        onFailure = { "SAVE-25B-BUILD: ${it.message ?: it::class.java.simpleName}" },
                     )
-                    showReview = false
+                    if (failureMessage != null) {
+                        error = failureMessage
+                        showReview = false
+                    }
                 }) { Text("पुष्टि और सेव / Confirm Save") }
             },
             dismissButton = { TextButton(onClick = { showReview = false }) { Text("बदलें / Edit") } },
