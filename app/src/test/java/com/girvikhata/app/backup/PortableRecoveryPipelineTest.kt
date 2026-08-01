@@ -47,7 +47,13 @@ class PortableRecoveryPipelineTest {
         val decryptedPackage = PortableBackupCrypto.decrypt(encryptedPackage, recoveryKey.toCharArray())
         val decoded = PortableAppBundleCodec.decode(decryptedPackage.payload)
 
-        assertEquals(snapshot, decoded.snapshot)
+        // Portable codecs canonicalize legacy Girvi item fields into explicit item records. Compare the
+        // canonical portable representation instead of raw data-class shape so the test validates the
+        // actual new-device recovery contract without rejecting equivalent legacy normalization.
+        assertArrayEquals(
+            SnapshotPortableCodec.encode(snapshot),
+            SnapshotPortableCodec.encode(decoded.snapshot),
+        )
         assertEquals(masters, decoded.masterCatalog)
         assertTrue(decoded.hasPortableMedia)
         assertEquals(media.keys, decoded.portableMedia.keys)
