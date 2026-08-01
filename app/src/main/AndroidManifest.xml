@@ -21,6 +21,11 @@
         </provider>
 
         <activity
+            android:name=".PracticalEntryActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".RelationalShadowActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
