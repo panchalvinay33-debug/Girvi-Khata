@@ -2,8 +2,8 @@ package com.girvikhata.app.data
 
 /**
  * Narrow bridge used while the classic Compose UI still emits a complete next snapshot.
- * Every accepted change is first classified into a typed mutation and then executed by the
- * verified coordinator. The authoritative snapshot is always reloaded after success.
+ * Every accepted change is converted to a typed mutation and executed by the verified coordinator.
+ * The authoritative snapshot is always reloaded after success.
  */
 class ClassicVerifiedWriteGateway internal constructor(
     private val reloadAuthoritative: () -> AppSnapshot,
@@ -18,7 +18,7 @@ class ClassicVerifiedWriteGateway internal constructor(
     )
 
     fun persist(screenSnapshot: AppSnapshot, nextSnapshot: AppSnapshot): AppSnapshot {
-        val classified = ClassicSnapshotMutationClassifier.classify(screenSnapshot, nextSnapshot)
+        val classified = classifySafely(screenSnapshot, nextSnapshot)
         executeVerified(
             VerifiedBusinessWriteRequest(
                 expectedFingerprint = RelationalShadowFingerprint.sha256(screenSnapshot),
@@ -27,5 +27,29 @@ class ClassicVerifiedWriteGateway internal constructor(
             ),
         )
         return reloadAuthoritative()
+    }
+
+    private fun classifySafely(before: AppSnapshot, next: AppSnapshot): ClassicSnapshotMutationClassifier.Classified {
+        if (next.girvis.size == before.girvis.size + 1) {
+            require(before.schemaVersion == next.schemaVersion) { "Girvi create cannot change schema" }
+            require(next.categories == before.categories) { "Girvi create cannot change categories" }
+            require(next.girvis.containsAll(before.girvis)) { "Girvi create cannot alter existing girvi" }
+
+            val girvi = next.girvis.single { candidate -> before.girvis.none { it.id == candidate.id } }
+            val customer = next.customers.firstOrNull { it.id == girvi.customerId }
+                ?: error("New girvi customer missing")
+
+            val unrelatedBefore = before.customers.filterNot { it.id == customer.id }.toSet()
+            val unrelatedNext = next.customers.filterNot { it.id == customer.id }.toSet()
+            require(unrelatedNext == unrelatedBefore) { "Girvi create contains unrelated customer changes" }
+            require(next.customers.count { it.id == customer.id } == 1) { "Girvi create customer identity duplicated" }
+
+            return ClassicSnapshotMutationClassifier.Classified(
+                mutation = CreateGirviWithCustomerUpsertMutation(customer, girvi),
+                title = "Practical girvi ${girvi.girviNumber} created",
+            )
+        }
+
+        return ClassicSnapshotMutationClassifier.classify(before, next)
     }
 }
