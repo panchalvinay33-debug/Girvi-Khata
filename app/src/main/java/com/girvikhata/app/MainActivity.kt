@@ -69,6 +69,7 @@ class MainActivity : FragmentActivity() {
                             recordStore = recordStore,
                             biometricAvailability = biometricAvailability,
                             lockSignal = lockSignal,
+                            refreshSignal = settingsSignal,
                             requestBiometric = ::requestBiometric,
                         )
                         is RecordStoreLoadState.Corrupt -> DataRecoveryRequired(
