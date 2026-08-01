@@ -1,5 +1,6 @@
 package com.girvikhata.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -77,17 +78,12 @@ class OwnerSettingsActivity : FragmentActivity() {
                     saveSecurity = security::saveSessionSettings,
                     snapshot = snapshot,
                     renameCategory = { id, name ->
-                        commitCategoryMutation(
-                            RenameCategoryMutation(id, name),
-                            "Owner category rename",
-                        )
+                        commitCategoryMutation(RenameCategoryMutation(id, name), "Owner category rename")
                     },
                     moveCategory = { id, direction ->
-                        commitCategoryMutation(
-                            ReorderCategoryMutation(id, direction),
-                            "Owner category reorder",
-                        )
+                        commitCategoryMutation(ReorderCategoryMutation(id, direction), "Owner category reorder")
                     },
+                    openRecoveryCenter = { startActivity(Intent(this, RecoveryCenterActivity::class.java)) },
                     close = ::finish,
                 )
             }
@@ -104,11 +100,21 @@ private fun OwnerSettingsRoot(
     snapshot: AppSnapshot,
     renameCategory: (String, String) -> Unit,
     moveCategory: (String, Int) -> Unit,
+    openRecoveryCenter: () -> Unit,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
     if (!unlocked) SettingsPinScreen(verifyPin, { unlocked = true }, close)
-    else OwnerSettingsScreen(verifierStatus, loadSecurity, saveSecurity, snapshot.categories, renameCategory, moveCategory, close)
+    else OwnerSettingsScreen(
+        verifierStatus,
+        loadSecurity,
+        saveSecurity,
+        snapshot.categories,
+        renameCategory,
+        moveCategory,
+        openRecoveryCenter,
+        close,
+    )
 }
 
 @Composable
@@ -155,6 +161,7 @@ private fun OwnerSettingsScreen(
     categories: List<CategoryRecord>,
     renameCategory: (String, String) -> Unit,
     moveCategory: (String, Int) -> Unit,
+    openRecoveryCenter: () -> Unit,
     close: () -> Unit,
 ) {
     var settings by remember { mutableStateOf(loadSecurity()) }
@@ -168,6 +175,14 @@ private fun OwnerSettingsScreen(
             Modifier.weight(1f).padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item {
+                SettingsCard("Recovery & Backup") {
+                    Text("Mobile lost/reset hone par Recovery Key + encrypted off-device backup se khata wapas aayega.", color = Color.Gray)
+                    Button(onClick = openRecoveryCenter, modifier = Modifier.fillMaxWidth()) {
+                        Text("Open Recovery Center")
+                    }
+                }
+            }
             item {
                 SettingsCard("Security diagnostics") {
                     Text("PIN verifier: $verifierStatus", fontWeight = FontWeight.Bold)
