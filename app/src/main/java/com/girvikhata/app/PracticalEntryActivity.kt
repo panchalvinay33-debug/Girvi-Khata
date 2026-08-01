@@ -11,15 +11,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -51,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
@@ -64,7 +64,9 @@ import com.girvikhata.app.data.GirviRecord
 import com.girvikhata.app.data.VerifiedBusinessWriteCoordinator
 import com.girvikhata.app.domain.CustomerCandidate
 import com.girvikhata.app.domain.CustomerMatcher
+import com.girvikhata.app.domain.GirviInterestMetadata
 import com.girvikhata.app.domain.GirviSequence
+import com.girvikhata.app.domain.InterestMode
 import java.io.File
 import java.text.DateFormat
 import java.util.Calendar
@@ -108,7 +110,7 @@ class PracticalEntryActivity : FragmentActivity() {
                                 val intentInfo = intent?.let {
                                     " intent=${it.state}/${it.mutationLabel}/${it.transactionId.take(8)}"
                                 }.orEmpty()
-                                "SAVE-25B-REAL: ${failure.message ?: failure::class.java.simpleName}$intentInfo"
+                                "SAVE-25-REBUILD: ${failure.message ?: failure::class.java.simpleName}$intentInfo"
                             },
                         )
                     },
@@ -125,6 +127,7 @@ private data class PracticalItemDraft(
     val quantity: String = "1",
     val weight: String = "",
     val unit: String = "Gram / ग्राम",
+    val customUnit: String = "",
     val gross: String = "",
     val deduction: String = "",
     val description: String = "",
@@ -149,7 +152,7 @@ private fun PracticalEntryScreen(
     var customerPhotoPath by rememberSaveable { mutableStateOf("") }
     var pledgeDate by rememberSaveable { mutableStateOf(startOfToday()) }
     var amount by rememberSaveable { mutableStateOf("") }
-    var monthlyRate by rememberSaveable { mutableStateOf("2") }
+    var interestState by remember { mutableStateOf(InterestUiState()) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var showReview by rememberSaveable { mutableStateOf(false) }
     var pendingPhotoTarget by remember { mutableStateOf<PhotoTarget?>(null) }
@@ -200,7 +203,15 @@ private fun PracticalEntryScreen(
             pendingPhotoUri = uri
             pendingPhotoPath = file.absolutePath
             camera.launch(uri)
-        }.onFailure { error = "PHOTO-25B: ${it.message ?: it::class.java.simpleName}" }
+        }.onFailure { error = "PHOTO-25: ${it.message ?: it::class.java.simpleName}" }
+    }
+
+    val duplicateMatch = remember(snapshot.customers, customerName, mobile) {
+        CustomerMatcher.findBestMatch(
+            snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) },
+            customerName,
+            mobile,
+        )
     }
 
     Scaffold(
@@ -229,7 +240,7 @@ private fun PracticalEntryScreen(
                             IconButton(onClick = {
                                 runCatching {
                                     contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
-                                }.onFailure { error = "CONTACT-25B: ${it.message ?: it::class.java.simpleName}" }
+                                }.onFailure { error = "CONTACT-25: ${it.message ?: it::class.java.simpleName}" }
                             }) {
                                 Icon(Icons.Default.Contacts, contentDescription = "Contact se customer laayein")
                             }
@@ -251,15 +262,24 @@ private fun PracticalEntryScreen(
                             label = { Text("पता / Address") },
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        duplicateMatch?.let {
+                            Text(
+                                "मौजूदा ग्राहक मिला / Existing customer matched: ${it.name}${it.mobile.takeIf(String::isNotBlank)?.let { m -> " • $m" }.orEmpty()}",
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         if (customerPhotoPath.isNotBlank()) {
                             Text("✓ ग्राहक की live photo सुरक्षित / Customer photo captured", color = MaterialTheme.colorScheme.primary)
-                            TextButton(onClick = { File(customerPhotoPath).delete(); customerPhotoPath = "" }) { Text("फोटो हटाएँ / Remove") }
+                            Row {
+                                TextButton(onClick = { takePhoto(PhotoTarget.CUSTOMER) }) { Text("फिर फोटो / Retake") }
+                                TextButton(onClick = { File(customerPhotoPath).delete(); customerPhotoPath = "" }) { Text("फोटो हटाएँ / Remove") }
+                            }
                         } else Text("फोटो optional है / Photo is optional")
                     }
                 }
 
                 item {
-                    SectionCard("तारीख और राशि / Date & Amount") {
+                    SectionCard("तारीख, राशि और ब्याज / Date, Amount & Interest") {
                         OutlinedButton(
                             onClick = {
                                 showDatePicker(context, pledgeDate) { selected ->
@@ -279,18 +299,13 @@ private fun PracticalEntryScreen(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        OutlinedTextField(
-                            value = monthlyRate,
-                            onValueChange = { monthlyRate = decimalInput(it) },
-                            label = { Text("मासिक ब्याज % / Monthly interest %") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
+                        InterestEntrySection(
+                            state = interestState,
+                            onStateChange = { interestState = it },
+                            principalRupees = amount,
+                            startAtMillis = pledgeDate,
+                            previewAtMillis = endOfToday(),
                         )
-                        val principal = amount.toDoubleOrNull()
-                        val rate = monthlyRate.toDoubleOrNull()
-                        if (principal != null && rate != null) {
-                            Text("प्रति माह ब्याज / Monthly interest: ₹${"%.2f".format(principal * rate / 100.0)}", fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
 
@@ -301,7 +316,10 @@ private fun PracticalEntryScreen(
                         categories = categories,
                         removable = items.size > 1,
                         onChange = { items[index] = it },
-                        onRemove = { items.removeAt(index) },
+                        onRemove = {
+                            if (item.photoPath.isNotBlank()) File(item.photoPath).delete()
+                            items.removeAt(index)
+                        },
                         onPhoto = { takePhoto(PhotoTarget.ITEM, index) },
                     )
                 }
@@ -321,7 +339,7 @@ private fun PracticalEntryScreen(
                     }
                     Button(
                         onClick = {
-                            error = validatePracticalEntry(customerName, amount, monthlyRate, pledgeDate, items)
+                            error = validatePracticalEntry(customerName, amount, interestState, pledgeDate, items)
                             if (error == null) showReview = true
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -334,7 +352,8 @@ private fun PracticalEntryScreen(
 
     if (showReview) {
         val principal = amount.toDoubleOrNull() ?: 0.0
-        val rate = monthlyRate.toDoubleOrNull() ?: 0.0
+        val terms = interestState.toTermsOrNull()
+        val preview = interestPreview(interestState, amount, pledgeDate, endOfToday())
         AlertDialog(
             onDismissRequest = { showReview = false },
             title = { Text("एंट्री जाँचें / Review Entry") },
@@ -345,13 +364,14 @@ private fun PracticalEntryScreen(
                     Text("तारीख / Date: ${DateFormat.getDateInstance().format(Date(pledgeDate))}")
                     Text("सामान / Items: ${items.size}")
                     Text("मूलधन / Principal: ₹${"%.2f".format(principal)}")
-                    Text("ब्याज / Interest: ${"%.2f".format(rate)}% प्रति माह")
-                    Text("मासिक ब्याज / Monthly: ₹${"%.2f".format(principal * rate / 100.0)}")
+                    Text(interestReviewLabel(interestState))
+                    preview?.let { Text("आज तक preview / Today: ब्याज ₹${"%.2f".format(it.interestPaise / 100.0)} • कुल ₹${"%.2f".format(it.totalPayablePaise / 100.0)}") }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     val failureMessage = runCatching {
+                        val saveTerms = terms ?: error("Interest terms invalid")
                         val existing = selectedCustomerId?.let { id -> snapshot.customers.firstOrNull { it.id == id } }
                             ?: CustomerMatcher.findBestMatch(
                                 snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) },
@@ -364,8 +384,16 @@ private fun PracticalEntryScreen(
                             address = address.trim(),
                         )
                         PrivateMediaVault.attachCustomerPhoto(context, customer.id, customerPhotoPath)
-                        val records = items.map { draft ->
+                        val records = items.mapIndexed { index, draft ->
                             PrivateMediaVault.attachItemPhoto(context, draft.id, draft.photoPath)
+                            val unitText = if (draft.unit == CUSTOM_UNIT) draft.customUnit.trim() else draft.unit
+                            val baseDescription = buildString {
+                                append(draft.description.trim())
+                                if (!draft.advancedWeight && unitText.isNotBlank()) {
+                                    if (isNotBlank()) append(" • ")
+                                    append("Weight unit: $unitText")
+                                }
+                            }
                             GirviItemRecord(
                                 id = draft.id,
                                 categoryName = draft.category,
@@ -373,13 +401,7 @@ private fun PracticalEntryScreen(
                                 quantity = draft.quantity.toInt(),
                                 grossWeightGrams = if (draft.advancedWeight) draft.gross else draft.weight,
                                 deductionWeightGrams = if (draft.advancedWeight) draft.deduction else "",
-                                description = buildString {
-                                    append(draft.description.trim())
-                                    if (!draft.advancedWeight && draft.unit.isNotBlank()) {
-                                        if (isNotBlank()) append(" • ")
-                                        append("Weight unit: ${draft.unit}")
-                                    }
-                                },
+                                description = if (index == 0) GirviInterestMetadata.attach(baseDescription, saveTerms) else baseDescription,
                             )
                         }
                         val first = records.first()
@@ -393,14 +415,14 @@ private fun PracticalEntryScreen(
                                 itemName = first.itemName,
                                 weightGrams = first.grossWeightGrams,
                                 principalPaise = (principal * 100).roundToLong(),
-                                monthlyRateBasisPoints = (rate * 100).roundToLong().toInt(),
+                                monthlyRateBasisPoints = if (saveTerms.mode == InterestMode.PERCENT_PER_MONTH) saveTerms.monthlyRateBasisPoints else 0,
                                 createdAt = pledgeDate,
                                 items = records,
                             ),
                         )
                     }.fold(
                         onSuccess = { it },
-                        onFailure = { "SAVE-25B-BUILD: ${it.message ?: it::class.java.simpleName}" },
+                        onFailure = { "SAVE-25-BUILD: ${it.message ?: it::class.java.simpleName}" },
                     )
                     if (failureMessage != null) {
                         error = failureMessage
@@ -483,12 +505,21 @@ private fun PracticalItemEditor(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
                 Column(Modifier.weight(1f)) {
-                    listOf("Gram / ग्राम", "Tola / तोला", "Kg / किलो", "Piece / नग").forEach { unit ->
+                    WEIGHT_UNITS.forEach { unit ->
                         TextButton(onClick = { onChange(item.copy(unit = unit)) }) {
                             Text(if (item.unit == unit) "✓ $unit" else unit)
                         }
                     }
                 }
+            }
+            if (item.unit == CUSTOM_UNIT) {
+                OutlinedTextField(
+                    value = item.customUnit,
+                    onValueChange = { onChange(item.copy(customUnit = it.take(24))) },
+                    label = { Text("अपनी unit / Custom unit") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
             }
         }
         OutlinedTextField(
@@ -497,13 +528,21 @@ private fun PracticalItemEditor(
             label = { Text("विवरण / Description") },
             modifier = Modifier.fillMaxWidth(),
         )
-        if (item.photoPath.isNotBlank()) Text("✓ सामान की live photo सुरक्षित / Item photo captured")
-        else Text("सामान की photo optional / Item photo optional")
+        if (item.photoPath.isNotBlank()) {
+            Text("✓ सामान की live photo सुरक्षित / Item photo captured")
+            Row {
+                TextButton(onClick = onPhoto) { Text("फिर फोटो / Retake") }
+                TextButton(onClick = {
+                    File(item.photoPath).delete()
+                    onChange(item.copy(photoPath = ""))
+                }) { Text("हटाएँ / Remove") }
+            }
+        } else Text("सामान की photo optional / Item photo optional")
     }
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable Column.() -> Unit) {
+private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, fontWeight = FontWeight.Bold)
@@ -583,19 +622,27 @@ private fun showDatePicker(context: android.content.Context, current: Long, onSe
 private fun validatePracticalEntry(
     customerName: String,
     amount: String,
-    rate: String,
+    interest: InterestUiState,
     date: Long,
     items: List<PracticalItemDraft>,
 ): String? = when {
     customerName.trim().length < 2 -> "ग्राहक का नाम जरूरी है / Customer name required"
     amount.toDoubleOrNull()?.let { it <= 0.0 } != false -> "सही मूल राशि डालें / Enter valid principal"
-    rate.toDoubleOrNull()?.let { it !in 0.0..100.0 } != false -> "सही ब्याज दर डालें / Enter valid interest rate"
+    interest.toTermsOrNull() == null -> "सही ब्याज नियम चुनें / Enter valid interest terms"
+    interest.mode == InterestMode.PERCENT_PER_MONTH && interest.monthlyRatePercent.toDoubleOrNull()?.let { it !in 0.0..100.0 } != false -> "सही ब्याज दर डालें / Enter valid interest rate"
+    interest.mode == InterestMode.FLAT_PER_MONTH && interest.flatMonthlyRupees.toDoubleOrNull()?.let { it < 0.0 } != false -> "सही flat monthly charge डालें"
     date > endOfToday() -> "भविष्य की तारीख allowed नहीं / Future date not allowed"
     items.isEmpty() -> "कम से कम एक सामान जरूरी / Add at least one item"
     items.any { it.category.isBlank() || it.name.trim().isBlank() } -> "हर सामान का नाम और category जरूरी / Item name and category required"
     items.any { it.quantity.toIntOrNull()?.let { qty -> qty <= 0 } != false } -> "सामान की संख्या सही डालें / Invalid quantity"
+    items.any { !it.advancedWeight && it.unit == CUSTOM_UNIT && it.customUnit.isBlank() } -> "Custom weight unit लिखें"
     items.any { it.advancedWeight && (it.deduction.toDoubleOrNull() ?: 0.0) > (it.gross.toDoubleOrNull() ?: 0.0) } -> "कटौती gross weight से अधिक नहीं हो सकती"
     else -> null
+}
+
+private fun interestReviewLabel(state: InterestUiState): String = when (state.mode) {
+    InterestMode.PERCENT_PER_MONTH -> "ब्याज / Interest: ${state.monthlyRatePercent}% प्रति माह"
+    InterestMode.FLAT_PER_MONTH -> "ब्याज / Interest: ₹${state.flatMonthlyRupees.ifBlank { "0" }} flat प्रति माह"
 }
 
 private fun normalizeMobileInput(value: String): String {
@@ -625,3 +672,14 @@ private fun endOfToday(): Long = Calendar.getInstance().apply {
     set(Calendar.SECOND, 59)
     set(Calendar.MILLISECOND, 999)
 }.timeInMillis
+
+private const val CUSTOM_UNIT = "Custom / अन्य"
+private val WEIGHT_UNITS = listOf(
+    "Gram / ग्राम",
+    "mg / मिलीग्राम",
+    "Kg / किलो",
+    "Tola / तोला",
+    "Ratti / रत्ती",
+    "Piece / नग",
+    CUSTOM_UNIT,
+)
