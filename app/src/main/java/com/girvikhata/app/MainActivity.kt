@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -57,15 +58,27 @@ class MainActivity : FragmentActivity() {
                     BiometricAvailability.UNSUPPORTED
                 }
                 var storeState by remember { mutableStateOf(recordStore.loadState()) }
+                var startFreshKhata by remember { mutableStateOf(false) }
                 when (val state = storeState) {
-                    is RecordStoreLoadState.Ready -> BlueprintGirviKhataRoot(
-                        securityPreferences = securityPreferences,
-                        recordStore = recordStore,
-                        biometricAvailability = biometricAvailability,
-                        lockSignal = lockSignal,
-                        refreshSignal = settingsSignal,
-                        requestBiometric = ::requestBiometric,
-                    )
+                    is RecordStoreLoadState.Ready -> {
+                        val untouchedFreshInstall = !securityPreferences.hasPin() &&
+                            state.snapshot.customers.isEmpty() && state.snapshot.girvis.isEmpty()
+                        if (untouchedFreshInstall && !startFreshKhata) {
+                            FirstRunRecoveryChoice(
+                                newKhata = { startFreshKhata = true },
+                                recoverExisting = { startActivity(Intent(this@MainActivity, RestoreActivity::class.java)) },
+                            )
+                        } else {
+                            BlueprintGirviKhataRoot(
+                                securityPreferences = securityPreferences,
+                                recordStore = recordStore,
+                                biometricAvailability = biometricAvailability,
+                                lockSignal = lockSignal,
+                                refreshSignal = settingsSignal,
+                                requestBiometric = ::requestBiometric,
+                            )
+                        }
+                    }
                     is RecordStoreLoadState.Corrupt -> DataRecoveryRequired(
                         reason = state.reason,
                         copiesChecked = state.safetyCopiesChecked,
@@ -117,6 +130,31 @@ class MainActivity : FragmentActivity() {
                 .setNegativeButtonText("PIN use karein")
                 .build(),
         )
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun FirstRunRecoveryChoice(newKhata: () -> Unit, recoverExisting: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Girvi Khata", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Naya khata shuru karein ya purana mobile ka data recover karein")
+        Card(Modifier.fillMaxWidth().padding(vertical = 18.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = newKhata, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.AddCircle, null)
+                    Text("  Naya Khata Setup")
+                }
+                OutlinedButton(onClick = recoverExisting, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Restore, null)
+                    Text("  Purana Khata Recover Karein")
+                }
+                Text("Recovery ke liye encrypted .gkb backup aur Recovery Key chahiye.")
+            }
+        }
     }
 }
 
