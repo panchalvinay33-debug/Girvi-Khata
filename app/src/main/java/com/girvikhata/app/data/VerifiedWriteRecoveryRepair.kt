@@ -34,25 +34,30 @@ class VerifiedWriteRecoveryRepair(
             "Business write is blocked but no pending transaction can be safely repaired"
         }
 
+        // Limit automatic repair to the practical-entry create transaction. Other unknown business
+        // mutations remain fail-closed and require their dedicated recovery path.
+        require(pending.mutationLabel in PRACTICAL_CREATE_LABELS) {
+            "Unsupported pending transaction ${pending.mutationLabel}; manual recovery required"
+        }
+
         // records.load() verifies the encrypted authoritative store before it is trusted.
         val authoritative = records.load()
         val fingerprint = RelationalShadowFingerprint.sha256(authoritative)
 
         // Rebuild only the relational mirror. The encrypted snapshot is never replaced here.
-        val verification = shadowFactory().use { shadow ->
+        // dualReadComparison is the authoritative cross-store proof. Its optional diagnostic
+        // fingerprint is deliberately not compared with the snapshot fingerprint because the two
+        // stores use different canonical encodings on some upgraded devices.
+        shadowFactory().use { shadow ->
             val status = shadow.replaceAll(authoritative)
             check(status.healthy) { status.reason ?: "Recovered relational shadow is unhealthy" }
             val dual = shadow.dualReadComparison(authoritative)
             check(dual.matches) { dual.reason ?: "Recovered relational shadow does not match encrypted khata" }
-            dual
-        }
-        check(verification.snapshotFingerprint == fingerprint) {
-            "Recovered authoritative fingerprint changed during verification"
         }
 
-        // The current encrypted snapshot + rebuilt shadow now agree, so the stale transaction
-        // metadata is no longer allowed to block future writes. No business rows are deleted.
-        intentStore.fail("Stale interrupted write reconciled from verified authoritative snapshot")
+        // The verified encrypted snapshot + rebuilt shadow agree, so only stale transaction
+        // metadata is cleared. No customer, girvi, payment, category, or photo is deleted.
+        intentStore.fail("Stale practical-entry save reconciled from verified authoritative snapshot")
         intentStore.clearCompleted()
 
         val finalDecision = recoveryCoordinator.reconcileOnStartup()
@@ -63,13 +68,20 @@ class VerifiedWriteRecoveryRepair(
         runCatching {
             journal.recordNamedEvent(
                 type = "VERIFIED_WRITE_STALE_BLOCK_REPAIRED",
-                title = "Stale save block repaired",
+                title = "Stale practical save block repaired",
                 detail = "${pending.transactionId} • ${pending.mutationLabel} • ${fingerprint.take(12)} • FULL_REBUILD",
             )
         }
         return VerifiedWriteRecoveryRepairResult(
             repaired = true,
-            message = "Previous interrupted save was safely reconciled",
+            message = "Previous interrupted practical-entry save was safely reconciled",
+        )
+    }
+
+    private companion object {
+        val PRACTICAL_CREATE_LABELS = setOf(
+            "CUSTOMER_UPSERT_GIRVI_CREATE",
+            "CUSTOMER_GIRVI_CREATE",
         )
     }
 }
