@@ -74,7 +74,9 @@ class RecoveryKeyStore(
         private const val KEY_IV = "iv"
         private const val KEY_FINGERPRINT = "fingerprint"
         private val AAD = "girvi-khata-recovery-key-v1".toByteArray(Charsets.UTF_8)
-        private const val ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        private const val LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+        private const val DIGITS = "23456789"
+        private const val ALPHABET = LETTERS + DIGITS
         private const val RANDOM_CHARS = 24
 
         fun normalize(value: String): String = value.trim().uppercase().replace(" ", "")
@@ -94,9 +96,12 @@ class RecoveryKeyStore(
             .joinToString("") { "%02X".format(it) }
 
         fun generate(random: SecureRandom = SecureRandom()): String {
-            val body = buildString(RANDOM_CHARS) {
-                repeat(RANDOM_CHARS) { append(ALPHABET[random.nextInt(ALPHABET.length)]) }
-            }
+            val chars = CharArray(RANDOM_CHARS) { ALPHABET[random.nextInt(ALPHABET.length)] }
+            // PortableBackupCrypto requires both letters and digits. Guarantee that invariant rather
+            // than relying on probability, so every generated recovery key is immediately usable.
+            chars[0] = LETTERS[random.nextInt(LETTERS.length)]
+            chars[1] = DIGITS[random.nextInt(DIGITS.length)]
+            val body = String(chars)
             val groups = body.chunked(4)
             return (listOf("GK") + groups + checksum(body)).joinToString("-")
         }
