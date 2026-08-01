@@ -58,7 +58,7 @@ class MainActivity : FragmentActivity() {
                 }
                 var storeState by remember { mutableStateOf(recordStore.loadState()) }
                 when (val state = storeState) {
-                    is RecordStoreLoadState.Ready -> GirviKhataRoot(
+                    is RecordStoreLoadState.Ready -> BlueprintGirviKhataRoot(
                         securityPreferences = securityPreferences,
                         recordStore = recordStore,
                         biometricAvailability = biometricAvailability,
