@@ -3,6 +3,7 @@ package com.girvikhata.app
 import android.app.DatePickerDialog
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.CustomerRecord
@@ -65,6 +68,8 @@ import com.girvikhata.app.domain.ReportingEngine
 import com.girvikhata.app.export.CsvExportBuilder
 import com.girvikhata.app.export.ReceiptTextBuilder
 import com.girvikhata.app.export.SecureShare
+import com.girvikhata.app.security.BiometricAvailability
+import com.girvikhata.app.security.BiometricCapability
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.text.DateFormat
@@ -80,20 +85,54 @@ private val ReportsRed = Color(0xFF9B1C1C)
 private val ReportsBackground = Color(0xFFF6F7FB)
 
 class ReportsActivity : FragmentActivity() {
+    private lateinit var security: SecurityPreferences
+    private lateinit var biometricCapability: BiometricCapability
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val security = SecurityPreferences(applicationContext)
+        security = SecurityPreferences(applicationContext)
+        biometricCapability = BiometricCapability(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
         setContent {
             MaterialTheme {
+                val availability = if (security.sessionSettings().biometricUnlockEnabled) {
+                    biometricCapability.availability()
+                } else {
+                    BiometricAvailability.UNSUPPORTED
+                }
                 SecureReportsRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
+                    biometricAvailability = availability,
+                    requestBiometric = ::requestBiometric,
                     loadSnapshot = store::load,
                     saveSnapshot = store::save,
                     close = ::finish,
                 )
             }
         }
+    }
+
+    private fun requestBiometric(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        if (!security.sessionSettings().biometricUnlockEnabled) {
+            onError("Fingerprint unlock disabled hai")
+            return
+        }
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) = onError(errString.toString())
+                override fun onAuthenticationFailed() = onError("Fingerprint match nahi hua")
+            },
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Girvi Khata Reports")
+                .setSubtitle("Fingerprint se owner verify karein")
+                .setNegativeButtonText("Use PIN")
+                .build(),
+        )
     }
 }
 
@@ -103,6 +142,8 @@ private enum class CollectionPreset { TODAY, SEVEN_DAYS, THIRTY_DAYS, ALL, CUSTO
 @Composable
 private fun SecureReportsRoot(
     verifyPin: (String) -> PinVerificationResult,
+    biometricAvailability: BiometricAvailability,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     loadSnapshot: () -> AppSnapshot,
     saveSnapshot: (AppSnapshot) -> Unit,
     close: () -> Unit,
@@ -110,10 +151,16 @@ private fun SecureReportsRoot(
     var unlocked by rememberSaveable { mutableStateOf(false) }
     var snapshot by remember { mutableStateOf<AppSnapshot?>(null) }
     if (!unlocked) {
-        ReportsPinScreen(verifyPin, {
-            snapshot = loadSnapshot()
-            unlocked = true
-        }, close)
+        ReportsAuthScreen(
+            biometricAvailability,
+            verifyPin,
+            requestBiometric,
+            {
+                snapshot = loadSnapshot()
+                unlocked = true
+            },
+            close,
+        )
     } else {
         ReportsHome(
             snapshot = snapshot ?: AppSnapshot.defaults(),
@@ -127,48 +174,71 @@ private fun SecureReportsRoot(
 }
 
 @Composable
-private fun ReportsPinScreen(
+private fun ReportsAuthScreen(
+    biometricAvailability: BiometricAvailability,
     verifyPin: (String) -> PinVerificationResult,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     unlocked: () -> Unit,
     close: () -> Unit,
 ) {
+    val biometricFirst = biometricAvailability == BiometricAvailability.AVAILABLE
+    var usePin by rememberSaveable { mutableStateOf(!biometricFirst) }
     var pin by rememberSaveable { mutableStateOf("") }
-    var message by rememberSaveable { mutableStateOf("Reports dekhne ke liye PIN daalein") }
+    var message by rememberSaveable {
+        mutableStateOf(if (biometricFirst) "Fingerprint se reports kholein" else "Reports dekhne ke liye PIN daalein")
+    }
     Column(
         Modifier.fillMaxSize().background(ReportsNavy).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Default.Lock, null, tint = Color(0xFFFFC54D))
+        Icon(if (!usePin && biometricFirst) Icons.Default.Fingerprint else Icons.Default.Lock, null, tint = Color(0xFFFFC54D))
         Spacer(Modifier.height(12.dp))
         Text("Girvi Khata Reports", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
         Text(message, color = Color.White.copy(alpha = .8f))
         Spacer(Modifier.height(22.dp))
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it.filter(Char::isDigit).take(6) },
-                    label = { Text("6-digit PIN") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        when (val result = verifyPin(pin)) {
-                            PinVerificationResult.Success -> unlocked()
-                            PinVerificationResult.NotConfigured -> message = "Main app mein pehle PIN setup karein"
-                            is PinVerificationResult.Locked -> message = "Security lock active hai"
-                            is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
-                        }
-                        pin = ""
-                    },
-                    enabled = pin.length == 6,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = ReportsPurple),
-                ) { Text("Reports Unlock Karein") }
+                if (!usePin && biometricFirst) {
+                    Button(
+                        onClick = { requestBiometric(unlocked) { message = it } },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ReportsPurple),
+                    ) {
+                        Icon(Icons.Default.Fingerprint, null)
+                        Text("  Fingerprint se Continue")
+                    }
+                    TextButton(onClick = { usePin = true; message = "6-digit PIN daalein" }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Use PIN instead")
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = pin,
+                        onValueChange = { pin = it.filter(Char::isDigit).take(6) },
+                        label = { Text("6-digit PIN") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            when (val result = verifyPin(pin)) {
+                                PinVerificationResult.Success -> unlocked()
+                                PinVerificationResult.NotConfigured -> message = "Main app mein pehle PIN setup karein"
+                                is PinVerificationResult.Locked -> message = "Security lock active hai"
+                                is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
+                            }
+                            pin = ""
+                        },
+                        enabled = pin.length == 6,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ReportsPurple),
+                    ) { Text("Reports Unlock Karein") }
+                    if (biometricFirst) TextButton(onClick = { usePin = false; pin = "" }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Use Fingerprint")
+                    }
+                }
                 TextButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
