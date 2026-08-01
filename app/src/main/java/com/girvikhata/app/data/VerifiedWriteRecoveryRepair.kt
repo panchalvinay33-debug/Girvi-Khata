@@ -37,16 +37,24 @@ class VerifiedWriteRecoveryRepair(
         // records.load() verifies the encrypted authoritative store before it is trusted.
         val authoritative = records.load()
         val fingerprint = RelationalShadowFingerprint.sha256(authoritative)
-        val status = shadowFactory().use { shadow ->
-            shadow.replaceAll(authoritative)
+
+        // Rebuild only the relational mirror. The encrypted snapshot is never replaced here.
+        val verification = shadowFactory().use { shadow ->
+            val status = shadow.replaceAll(authoritative)
+            check(status.healthy) { status.reason ?: "Recovered relational shadow is unhealthy" }
             val dual = shadow.dualReadComparison(authoritative)
             check(dual.matches) { dual.reason ?: "Recovered relational shadow does not match encrypted khata" }
-            shadow.statusAgainst(authoritative)
+            dual
         }
-        check(status.healthy) { status.reason ?: "Recovered relational shadow is unhealthy" }
-        check(status.actualFingerprint == fingerprint) { "Recovered relational fingerprint mismatch" }
+        check(verification.snapshotFingerprint == fingerprint) {
+            "Recovered authoritative fingerprint changed during verification"
+        }
 
+        // The current encrypted snapshot + rebuilt shadow now agree, so the stale transaction
+        // metadata is no longer allowed to block future writes. No business rows are deleted.
         intentStore.fail("Stale interrupted write reconciled from verified authoritative snapshot")
+        intentStore.clearCompleted()
+
         val finalDecision = recoveryCoordinator.reconcileOnStartup()
         check(finalDecision.action != InterruptedWriteRecoveryAction.BLOCK_AND_REQUIRE_RECOVERY) {
             finalDecision.reason
@@ -56,7 +64,7 @@ class VerifiedWriteRecoveryRepair(
             journal.recordNamedEvent(
                 type = "VERIFIED_WRITE_STALE_BLOCK_REPAIRED",
                 title = "Stale save block repaired",
-                detail = "${pending.transactionId} • ${pending.mutationLabel} • ${fingerprint.take(12)} • ${status.syncMode ?: "FULL_REBUILD"}",
+                detail = "${pending.transactionId} • ${pending.mutationLabel} • ${fingerprint.take(12)} • FULL_REBUILD",
             )
         }
         return VerifiedWriteRecoveryRepairResult(
