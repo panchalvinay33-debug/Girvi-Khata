@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,9 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.backup.ExternalBackupVerification
-import com.girvikhata.app.backup.MediaBackupSupport
 import com.girvikhata.app.backup.PortableAppBundleCodec
 import com.girvikhata.app.backup.PortableBackupCrypto
+import com.girvikhata.app.backup.PortableMediaSupport
+import com.girvikhata.app.backup.RecoveryKeyStore
 import com.girvikhata.app.backup.SnapshotPortableCodec
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
@@ -61,9 +63,10 @@ class BackupActivity : FragmentActivity() {
     private lateinit var store: EncryptedRecordStore
     private lateinit var masterStore: EncryptedMasterCatalogStore
     private lateinit var journal: DataSafetyJournal
+    private lateinit var recoveryKeyStore: RecoveryKeyStore
 
     private var pendingBackup: PendingExternalBackup? = null
-    private var message by mutableStateOf("12+ characters, letters aur digits zaroori")
+    private var message by mutableStateOf("Recovery Key se portable encrypted backup banega")
     private var busy by mutableStateOf(false)
 
     private val createDocument = registerForActivityResult(
@@ -76,12 +79,14 @@ class BackupActivity : FragmentActivity() {
         store = EncryptedRecordStore(applicationContext)
         masterStore = EncryptedMasterCatalogStore(applicationContext)
         journal = DataSafetyJournal(applicationContext)
+        recoveryKeyStore = RecoveryKeyStore(applicationContext)
         setContent {
             MaterialTheme {
                 BackupRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
                     message = message,
                     busy = busy,
+                    keyFingerprint = recoveryKeyStore.fingerprint(),
                     requestExternalBackup = ::prepareAndChooseDestination,
                     close = ::finish,
                 )
@@ -95,15 +100,20 @@ class BackupActivity : FragmentActivity() {
         super.onDestroy()
     }
 
-    private fun prepareAndChooseDestination(passphrase: String) {
+    private fun prepareAndChooseDestination() {
         if (busy) return
         busy = true
         runCatching {
-            val secret = passphrase.toCharArray()
+            val recoveryKey = recoveryKeyStore.createIfMissing()
+            val secret = recoveryKey.toCharArray()
             val snapshot = store.load()
             val masters = masterStore.load()
-            val media = MediaBackupSupport.collect(filesDir)
-            val payload = PortableAppBundleCodec.encode(snapshot, masters, media)
+            val media = PortableMediaSupport.collect(applicationContext)
+            val payload = try {
+                PortableAppBundleCodec.encodePortable(snapshot, masters, media)
+            } finally {
+                PortableMediaSupport.clear(media)
+            }
             val encrypted = PortableBackupCrypto.encrypt(payload, secret, snapshot.schemaVersion)
 
             ExternalBackupVerification.verify(
@@ -119,7 +129,6 @@ class BackupActivity : FragmentActivity() {
                     .contentEquals(SnapshotPortableCodec.encode(snapshot)),
             ) { "Business bundle self-check failed" }
             require(decoded.masterCatalog == masters) { "Master bundle self-check failed" }
-            require(sameMedia(decoded.encryptedMedia, media)) { "Media bundle self-check failed" }
 
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             pendingBackup?.clearSecret()
@@ -133,9 +142,9 @@ class BackupActivity : FragmentActivity() {
                 girviCount = snapshot.girvis.size,
                 ledgerCount = snapshot.girvis.sumOf { it.payments.size },
                 masterCount = masters.entries.size,
-                mediaCount = media.size,
+                mediaCount = decoded.portableMedia.size,
             )
-            message = "Location choose karein. Business + masters + ${media.size} encrypted photos same .gkb mein verify honge."
+            message = "Location choose karein. New phone recovery-ready .gkb verify hoga."
             createDocument.launch(pendingBackup!!.fileName)
         }.onFailure {
             pendingBackup?.clearSecret()
@@ -150,7 +159,7 @@ class BackupActivity : FragmentActivity() {
         if (uri == null || pending == null) {
             pending?.clearSecret()
             pendingBackup = null
-            message = "Backup save cancel hua. Safety status unchanged hai."
+            message = "Backup save cancel hua."
             busy = false
             return
         }
@@ -170,7 +179,7 @@ class BackupActivity : FragmentActivity() {
             require(decoded.snapshot.customers.size == pending.customerCount) { "Written customer count mismatch" }
             require(decoded.snapshot.girvis.size == pending.girviCount) { "Written girvi count mismatch" }
             require(decoded.masterCatalog.entries.size == pending.masterCount) { "Written master count mismatch" }
-            require(decoded.encryptedMedia.size == pending.mediaCount) { "Written media count mismatch" }
+            require(decoded.mediaCount == pending.mediaCount) { "Written media count mismatch" }
 
             journal.markVerifiedBackup(verification.sha256, pending.customerCount, pending.girviCount, pending.ledgerCount)
             BackupResult(
@@ -182,9 +191,9 @@ class BackupActivity : FragmentActivity() {
                 verification.sha256,
             )
         }.onSuccess { result ->
-            message = "Verified backup: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • ${result.masters} masters • ${result.media} photos • SHA ${result.sha256.take(12)}…"
+            message = "Verified portable backup: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • ${result.masters} masters • ${result.media} photos • SHA ${result.sha256.take(12)}…"
         }.onFailure {
-            message = "Backup verify nahi hua: ${it.message ?: "unknown error"}. Backup due status unchanged hai."
+            message = "Backup verify nahi hua: ${it.message ?: "unknown error"}"
         }
         pending.clearSecret()
         pendingBackup = null
@@ -221,9 +230,6 @@ class BackupActivity : FragmentActivity() {
         }
     }
 
-    private fun sameMedia(a: Map<String, ByteArray>, b: Map<String, ByteArray>): Boolean =
-        a.keys == b.keys && a.all { (name, bytes) -> b[name]?.contentEquals(bytes) == true }
-
     private data class PendingExternalBackup(
         val fileName: String,
         val encryptedBytes: ByteArray,
@@ -237,7 +243,7 @@ class BackupActivity : FragmentActivity() {
         val mediaCount: Int,
     ) { fun clearSecret() = passphrase.fill('\u0000') }
 
-    private companion object { const val MAX_BACKUP_BYTES = 160 * 1024 * 1024 }
+    private companion object { const val MAX_BACKUP_BYTES = 180 * 1024 * 1024 }
 }
 
 private data class BackupResult(
@@ -254,12 +260,13 @@ private fun BackupRoot(
     verifyPin: (String) -> PinVerificationResult,
     message: String,
     busy: Boolean,
-    requestExternalBackup: (String) -> Unit,
+    keyFingerprint: String?,
+    requestExternalBackup: () -> Unit,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
     if (!unlocked) BackupPinScreen(verifyPin, { unlocked = true }, close)
-    else BackupCreateScreen(message, busy, requestExternalBackup, close)
+    else BackupCreateScreen(message, busy, keyFingerprint, requestExternalBackup, close)
 }
 
 @Composable
@@ -302,33 +309,20 @@ private fun BackupPinScreen(
 private fun BackupCreateScreen(
     message: String,
     busy: Boolean,
-    requestExternalBackup: (String) -> Unit,
+    keyFingerprint: String?,
+    requestExternalBackup: () -> Unit,
     close: () -> Unit,
 ) {
-    var passphrase by rememberSaveable { mutableStateOf("") }
-    var confirm by rememberSaveable { mutableStateOf("") }
-    var localError by rememberSaveable { mutableStateOf<String?>(null) }
-    BackupPanel("Portable Encrypted Backup", localError ?: message) {
-        Text("Business records, masters aur encrypted live photos ek combined .gkb mein save honge.", color = Color.Gray)
-        OutlinedTextField(passphrase, { passphrase = it }, label = { Text("Recovery passphrase") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(confirm, { confirm = it }, label = { Text("Passphrase dobara") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+    BackupPanel("Manual Emergency Backup", message) {
+        Icon(Icons.Default.Key, null)
+        Text("Recovery Key ID: ${keyFingerprint ?: "will be generated"}", fontWeight = FontWeight.Bold)
+        Text("Business records, masters aur photos portable encrypted .gkb mein save honge. Naye phone par same Recovery Key se restore hoga.", color = Color.Gray)
         Button(
-            onClick = {
-                when {
-                    passphrase != confirm -> localError = "Dono passphrase match nahi kar rahe"
-                    passphrase.length < 12 -> localError = "Passphrase kam se kam 12 characters ka rakhein"
-                    else -> {
-                        localError = null
-                        requestExternalBackup(passphrase)
-                        passphrase = ""
-                        confirm = ""
-                    }
-                }
-            },
+            onClick = requestExternalBackup,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF171752)),
-        ) { Text(if (busy) "Backup verify ho raha hai..." else "Location Chune Aur Verified Backup Save Karein") }
+        ) { Text(if (busy) "Backup verify ho raha hai..." else "Location Chune Aur Verified .gkb Save Karein") }
         OutlinedButton(onClick = close, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Close") }
     }
 }
@@ -340,7 +334,7 @@ private fun BackupPanel(title: String, subtitle: String, content: @Composable ()
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(if (title.contains("Portable")) Icons.Default.Backup else Icons.Default.Lock, null, tint = Color(0xFF171752))
+        Icon(if (title.contains("Manual")) Icons.Default.Backup else Icons.Default.Lock, null, tint = Color(0xFF171752))
         Spacer(Modifier.height(10.dp))
         Text(title, fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color(0xFF171752))
         Text(subtitle, color = Color.Gray)
