@@ -34,6 +34,54 @@ class RelationalShadowFingerprintTest {
     }
 
     @Test
+    fun decoded_legacy_single_item_random_ids_do_not_change_fingerprint() {
+        val customer = CustomerRecord(id = "c", name = "Owner")
+        val base = GirviRecord(
+            id = "legacy-g",
+            girviNumber = "GK-9",
+            customerId = customer.id,
+            customerName = customer.name,
+            categoryName = "Gold",
+            itemName = "Old Ring",
+            weightGrams = "7.5",
+            principalPaise = 25_000,
+            monthlyRateBasisPoints = 200,
+            createdAt = 100,
+        )
+        val firstRead = base.copy(items = listOf(GirviItemRecord(id = "random-read-a", categoryName = "Gold", itemName = "Old Ring", grossWeightGrams = "7.5")))
+        val secondRead = base.copy(items = listOf(GirviItemRecord(id = "random-read-b", categoryName = "Gold", itemName = "Old Ring", grossWeightGrams = "7.5")))
+
+        assertEquals("legacy-item-legacy-g", RelationalShadowFingerprint.stableItems(firstRead).single().id)
+        assertEquals(
+            RelationalShadowFingerprint.sha256(AppSnapshot(customers = listOf(customer), girvis = listOf(firstRead))),
+            RelationalShadowFingerprint.sha256(AppSnapshot(customers = listOf(customer), girvis = listOf(secondRead))),
+        )
+    }
+
+    @Test
+    fun explicit_item_identity_still_changes_fingerprint() {
+        val customer = CustomerRecord(id = "c", name = "Owner")
+        val base = GirviRecord(
+            id = "new-g",
+            girviNumber = "GK-10",
+            customerId = customer.id,
+            customerName = customer.name,
+            categoryName = "Gold",
+            itemName = "Ring",
+            weightGrams = "8",
+            principalPaise = 25_000,
+            monthlyRateBasisPoints = 200,
+            createdAt = 100,
+        )
+        val first = base.copy(items = listOf(GirviItemRecord(id = "real-a", categoryName = "Gold", itemName = "Ring", grossWeightGrams = "8", description = "Hallmarked")))
+        val second = base.copy(items = listOf(GirviItemRecord(id = "real-b", categoryName = "Gold", itemName = "Ring", grossWeightGrams = "8", description = "Hallmarked")))
+        assertNotEquals(
+            RelationalShadowFingerprint.sha256(AppSnapshot(customers = listOf(customer), girvis = listOf(first))),
+            RelationalShadowFingerprint.sha256(AppSnapshot(customers = listOf(customer), girvis = listOf(second))),
+        )
+    }
+
+    @Test
     fun expected_counts_include_items_and_payments() {
         val customer = CustomerRecord(id = "c", name = "Owner")
         val girvi = sampleGirvi("g", "GK-1", customer)
