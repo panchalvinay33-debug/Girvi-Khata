@@ -110,6 +110,7 @@ fun GirviKhataRoot(
     recordStore: EncryptedRecordStore,
     biometricAvailability: BiometricAvailability,
     lockSignal: Int,
+    refreshSignal: Int = 0,
     requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
 ) {
     val applicationContext = LocalContext.current.applicationContext
@@ -124,6 +125,9 @@ fun GirviKhataRoot(
 
     LaunchedEffect(lockSignal) {
         if (lockSignal > 0 && session == SessionState.UNLOCKED) session = SessionState.LOCKED
+    }
+    LaunchedEffect(refreshSignal) {
+        if (refreshSignal > 0 && session == SessionState.UNLOCKED) snapshot = recordStore.load()
     }
 
     fun persist(next: AppSnapshot) {
