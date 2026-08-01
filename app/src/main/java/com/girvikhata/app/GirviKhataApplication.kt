@@ -6,6 +6,7 @@ import android.os.Bundle
 import com.girvikhata.app.data.BusinessCommitObserver
 import com.girvikhata.app.data.InterruptedWriteRecoveryCoordinator
 import com.girvikhata.app.data.RestoreGenerationCoordinator
+import com.girvikhata.app.data.VerifiedWriteRecoveryRepair
 
 /** Process-lifetime verified business-commit observer. */
 class GirviKhataApplication : Application(), Application.ActivityLifecycleCallbacks {
@@ -19,9 +20,10 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         // Failure remains fail-closed because the pending restore intent blocks later coordinated writes.
         runCatching { RestoreGenerationCoordinator(this).reconcileOnStartup() }
 
-        // Non-destructive reconciliation only: it never replaces the authoritative snapshot.
-        // Unknown fingerprint states remain blocked and are journaled for explicit recovery.
+        // Reconcile normal interrupted writes, then repair only a stale business-write block from the
+        // verified encrypted authoritative snapshot. Active restore recovery is never bypassed.
         runCatching { InterruptedWriteRecoveryCoordinator(this).reconcileOnStartup() }
+        runCatching { VerifiedWriteRecoveryRepair(this).repairIfBlocked() }
 
         commitObserver = BusinessCommitObserver(this).also { it.start() }
     }
