@@ -1,5 +1,6 @@
 package com.girvikhata.app
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.backup.AutoBackupConfig
 import com.girvikhata.app.backup.ExternalBackupVerification
 import com.girvikhata.app.backup.PortableAppBundleCodec
 import com.girvikhata.app.backup.PortableBackupCrypto
@@ -64,6 +66,7 @@ class BackupActivity : FragmentActivity() {
     private lateinit var masterStore: EncryptedMasterCatalogStore
     private lateinit var journal: DataSafetyJournal
     private lateinit var recoveryKeyStore: RecoveryKeyStore
+    private lateinit var autoConfig: AutoBackupConfig
 
     private var pendingBackup: PendingExternalBackup? = null
     private var message by mutableStateOf("Recovery Key se portable encrypted backup banega")
@@ -80,6 +83,7 @@ class BackupActivity : FragmentActivity() {
         masterStore = EncryptedMasterCatalogStore(applicationContext)
         journal = DataSafetyJournal(applicationContext)
         recoveryKeyStore = RecoveryKeyStore(applicationContext)
+        autoConfig = AutoBackupConfig(applicationContext)
         setContent {
             MaterialTheme {
                 BackupRoot(
@@ -87,7 +91,9 @@ class BackupActivity : FragmentActivity() {
                     message = message,
                     busy = busy,
                     keyFingerprint = recoveryKeyStore.fingerprint(),
+                    keyReady = recoveryKeyStore.hasRecoveryKey() && autoConfig.status().recoveryKeyAcknowledged,
                     requestExternalBackup = ::prepareAndChooseDestination,
+                    openRecoveryCenter = { startActivity(Intent(this, RecoveryCenterActivity::class.java)) },
                     close = ::finish,
                 )
             }
@@ -104,8 +110,9 @@ class BackupActivity : FragmentActivity() {
         if (busy) return
         busy = true
         runCatching {
-            val recoveryKey = recoveryKeyStore.createIfMissing()
-            val secret = recoveryKey.toCharArray()
+            require(recoveryKeyStore.hasRecoveryKey()) { "Pehle Recovery Center me Recovery Key banayein" }
+            require(autoConfig.status().recoveryKeyAcknowledged) { "Pehle Recovery Key ko phone ke bahar save karke confirm karein" }
+            val secret = recoveryKeyStore.reveal().toCharArray()
             val snapshot = store.load()
             val masters = masterStore.load()
             val media = PortableMediaSupport.collect(applicationContext)
@@ -261,12 +268,14 @@ private fun BackupRoot(
     message: String,
     busy: Boolean,
     keyFingerprint: String?,
+    keyReady: Boolean,
     requestExternalBackup: () -> Unit,
+    openRecoveryCenter: () -> Unit,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
     if (!unlocked) BackupPinScreen(verifyPin, { unlocked = true }, close)
-    else BackupCreateScreen(message, busy, keyFingerprint, requestExternalBackup, close)
+    else BackupCreateScreen(message, busy, keyFingerprint, keyReady, requestExternalBackup, openRecoveryCenter, close)
 }
 
 @Composable
@@ -310,16 +319,22 @@ private fun BackupCreateScreen(
     message: String,
     busy: Boolean,
     keyFingerprint: String?,
+    keyReady: Boolean,
     requestExternalBackup: () -> Unit,
+    openRecoveryCenter: () -> Unit,
     close: () -> Unit,
 ) {
     BackupPanel("Manual Emergency Backup", message) {
         Icon(Icons.Default.Key, null)
-        Text("Recovery Key ID: ${keyFingerprint ?: "will be generated"}", fontWeight = FontWeight.Bold)
+        Text("Recovery Key ID: ${keyFingerprint ?: "not configured"}", fontWeight = FontWeight.Bold)
         Text("Business records, masters aur photos portable encrypted .gkb mein save honge. Naye phone par same Recovery Key se restore hoga.", color = Color.Gray)
+        if (!keyReady) {
+            Text("Pehle Recovery Key ko phone ke bahar safe karke confirm karein.", color = Color(0xFFB3261E), fontWeight = FontWeight.Bold)
+            OutlinedButton(onClick = openRecoveryCenter, modifier = Modifier.fillMaxWidth()) { Text("Open Recovery Center") }
+        }
         Button(
             onClick = requestExternalBackup,
-            enabled = !busy,
+            enabled = !busy && keyReady,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF171752)),
         ) { Text(if (busy) "Backup verify ho raha hai..." else "Location Chune Aur Verified .gkb Save Karein") }
