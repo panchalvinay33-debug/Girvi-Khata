@@ -1,5 +1,6 @@
 package com.girvikhata.app
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -176,6 +177,7 @@ private fun PinUnlockScreen(
     onBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     onUnlocked: () -> Unit,
 ) {
+    val context = LocalContext.current
     var pin by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("PIN daalein") }
     SecurePanel("Girvi Khata Unlock Kare", message) {
@@ -201,6 +203,10 @@ private fun PinUnlockScreen(
                 Text("Fingerprint se Unlock")
             }
         } else Text(biometricMessage(biometricAvailability), color = Color.Gray, fontSize = 12.sp)
+        TextButton(
+            onClick = { context.startActivity(Intent(context, PinRecoveryActivity::class.java)) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("PIN Recovery / PIN भूल गए") }
     }
 }
 
@@ -226,12 +232,7 @@ private fun MainShell(snapshot: AppSnapshot, onSnapshotChange: (AppSnapshot) -> 
     }
 
     if (newGirvi) {
-        NewGirviScreen(snapshot, { newGirvi = false }) { customer, girvi ->
-            val customers = if (snapshot.customers.any { it.id == customer.id }) snapshot.customers else snapshot.customers + customer
-            onSnapshotChange(snapshot.copy(customers = customers, girvis = snapshot.girvis + girvi))
-            newGirvi = false
-            tab = Tab.GIRVI
-        }
+        NewGirviScreen(snapshot, { newGirvi = false }) { _, _ -> }
         return
     }
 
@@ -290,7 +291,7 @@ private fun Dashboard(snapshot: AppSnapshot, openCustomers: () -> Unit, newGirvi
     }
     SearchCard("Customer, mobile ya girvi number khoje", openCustomers)
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        ActionCard("Naya Girvi", "Multiple items", Modifier.weight(1f), newGirvi)
+        ActionCard("Naya Girvi", "Contact + photo entry", Modifier.weight(1f), newGirvi)
         ActionCard("Customers", "${snapshot.customers.size} saved", Modifier.weight(1f), openCustomers)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -531,43 +532,14 @@ private fun More(snapshot: AppSnapshot, lock: () -> Unit) = Page("Security & Set
 private data class ItemDraft(val category: String = "", val name: String = "", val quantity: String = "1", val gross: String = "", val deduction: String = "", val description: String = "")
 
 @Composable
-private fun NewGirviScreen(snapshot: AppSnapshot, cancel: () -> Unit, save: (CustomerRecord, GirviRecord) -> Unit) = Page("Naya Girvi", cancel) {
-    var customerQuery by rememberSaveable { mutableStateOf("") }
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    var mobile by rememberSaveable { mutableStateOf("") }
-    var address by rememberSaveable { mutableStateOf("") }
-    var amount by rememberSaveable { mutableStateOf("") }
-    var rate by rememberSaveable { mutableStateOf("2") }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
-    val firstCategory = snapshot.categories.firstOrNull { it.active }?.name.orEmpty()
-    val drafts = remember { mutableStateListOf(ItemDraft(category = firstCategory)) }
-    OutlinedTextField(customerQuery, { customerQuery = it; selectedId = null }, label = { Text("Customer name / search") }, modifier = Modifier.fillMaxWidth())
-    val matches = CustomerMatcher.search(snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) }, customerQuery).take(5)
-    if (customerQuery.isNotBlank() && selectedId == null) matches.forEach { match ->
-        ClickCard(match.name, "${match.mobile} • ${match.address}") { selectedId = match.id; customerQuery = match.name; mobile = match.mobile; address = match.address }
+private fun NewGirviScreen(snapshot: AppSnapshot, cancel: () -> Unit, save: (CustomerRecord, GirviRecord) -> Unit) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        context.startActivity(Intent(context, PracticalEntryActivity::class.java))
+        cancel()
     }
-    OutlinedTextField(mobile, { mobile = it.digitsOnly(10) }, label = { Text("Mobile") }, modifier = Modifier.fillMaxWidth())
-    OutlinedTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
-    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        itemsIndexed(drafts) { index, draft -> ItemEditor(index, draft, snapshot.categories.filter { it.active }.map { it.name }, drafts.size > 1, { drafts[index] = it }, { drafts.removeAt(index) }) }
-        item {
-            OutlinedButton(onClick = { drafts.add(ItemDraft(category = firstCategory)) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Text(" Ek Aur Item") }
-            OutlinedTextField(amount, { amount = it.decimalOnly() }, label = { Text("Principal ₹") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(rate, { rate = it.decimalOnly() }, label = { Text("Monthly interest %") }, modifier = Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = {
-                val amountNumber = amount.toDoubleOrNull()
-                val rateNumber = rate.toDoubleOrNull()
-                error = when { customerQuery.trim().length < 2 -> "Customer required"; drafts.any { validateItem(it) != null } -> drafts.mapNotNull(::validateItem).first(); amountNumber == null || amountNumber <= 0 -> "Valid amount required"; rateNumber == null || rateNumber !in 0.0..100.0 -> "Valid rate required"; else -> null }
-                if (error == null) {
-                    val existing = selectedId?.let { id -> snapshot.customers.firstOrNull { it.id == id } } ?: CustomerMatcher.findBestMatch(snapshot.customers.map { CustomerCandidate(it.id, it.name, it.mobile, it.address) }, customerQuery, mobile)?.let { m -> snapshot.customers.first { it.id == m.id } }
-                    val customer = existing ?: CustomerRecord(name = customerQuery.trim(), mobile = mobile, address = address.trim())
-                    val items = drafts.map { GirviItemRecord(categoryName = it.category, itemName = it.name.trim(), quantity = it.quantity.toInt(), grossWeightGrams = it.gross, deductionWeightGrams = it.deduction, description = it.description.trim()) }
-                    val first = items.first()
-                    save(customer, GirviRecord(girviNumber = GirviSequence.nextNumber(snapshot.girvis.map { it.girviNumber }), customerId = customer.id, customerName = customer.name, categoryName = first.categoryName, itemName = first.itemName, weightGrams = first.grossWeightGrams, principalPaise = (amountNumber!! * 100).roundToLong(), monthlyRateBasisPoints = (rateNumber!! * 100).roundToLong().toInt(), items = items))
-                }
-            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Purple)) { Text("Save Girvi") }
-        }
+    Page("Naya Girvi", cancel) {
+        Text("नया contact + photo entry form खोला जा रहा है… / Opening unified practical entry…")
     }
 }
 
