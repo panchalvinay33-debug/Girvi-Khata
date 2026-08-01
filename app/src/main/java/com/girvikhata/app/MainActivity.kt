@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -76,6 +78,12 @@ class MainActivity : FragmentActivity() {
                             retry = { storeState = recordStore.loadState() },
                         )
                     }
+                    ExtendedFloatingActionButton(
+                        onClick = { startActivity(Intent(this@MainActivity, PracticalEntryActivity::class.java)) },
+                        modifier = Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 92.dp),
+                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                        text = { Text("नया गिरवी / New") },
+                    )
                     FloatingActionButton(
                         onClick = { startActivity(Intent(this@MainActivity, ToolsActivity::class.java)) },
                         modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 92.dp),
