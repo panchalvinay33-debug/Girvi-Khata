@@ -3,4 +3,7 @@
     <cache-path
         name="shared_exports"
         path="shared_exports/" />
+    <files-path
+        name="private_media"
+        path="private_media/" />
 </paths>
