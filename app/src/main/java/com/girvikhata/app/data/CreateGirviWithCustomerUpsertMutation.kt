@@ -1,12 +1,11 @@
 package com.girvikhata.app.data
 
-/**
- * Atomic mutation for the practical-entry flow when a matched existing customer is edited
- * (for example after importing a phone contact) at the same time as a new girvi is created.
- *
- * Only the girvi-linked customer may be inserted/updated; no other customer or existing girvi
- * may change through this mutation.
- */
+import com.girvikhata.app.domain.GirviInterestMetadata
+import com.girvikhata.app.domain.InterestMode
+import com.girvikhata.app.domain.InterestPeriodRule
+import com.girvikhata.app.domain.InterestTerms
+
+/** Atomic practical-entry mutation: customer upsert + new girvi create. */
 data class CreateGirviWithCustomerUpsertMutation(
     val customer: CustomerRecord,
     val girvi: GirviRecord,
@@ -19,10 +18,26 @@ data class CreateGirviWithCustomerUpsertMutation(
         require(snapshot.girvis.none { it.id == girvi.id }) { "Duplicate girvi ID" }
         require(snapshot.girvis.none { it.girviNumber == girvi.girviNumber }) { "Duplicate girvi number" }
 
+        val storedGirvi = freezeInterestTerms(girvi)
         val customers = snapshot.customers.filterNot { it.id == customer.id } + customer
         return snapshot.copy(
             customers = customers.sortedBy { it.id },
-            girvis = (snapshot.girvis + girvi).sortedBy { it.id },
+            girvis = (snapshot.girvis + storedGirvi).sortedBy { it.id },
         )
+    }
+
+    private fun freezeInterestTerms(value: GirviRecord): GirviRecord {
+        if (value.items.isEmpty()) return value
+        val first = value.items.first()
+        if (GirviInterestMetadata.read(first.description) != null) return value
+        val legacyTerms = InterestTerms(
+            mode = InterestMode.PERCENT_PER_MONTH,
+            monthlyRateBasisPoints = value.monthlyRateBasisPoints,
+            periodRule = InterestPeriodRule.COMPLETED_MONTHS_PLUS_DAYS,
+        )
+        val frozen = first.copy(
+            description = GirviInterestMetadata.attach(first.description, legacyTerms),
+        )
+        return value.copy(items = listOf(frozen) + value.items.drop(1))
     }
 }
