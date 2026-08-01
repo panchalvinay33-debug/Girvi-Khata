@@ -21,6 +21,11 @@
         </provider>
 
         <activity
+            android:name=".PracticalEntryGateActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".PracticalEntryActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
