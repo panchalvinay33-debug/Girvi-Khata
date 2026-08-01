@@ -25,7 +25,7 @@ class SecureMediaVault(
     @Synchronized
     fun importPhoto(source: File, mediaId: String): File {
         require(source.exists() && source.isFile) { "Photo file missing" }
-        require(source.length() in 1..MAX_PHOTO_BYTES) { "Photo size invalid" }
+        require(source.length() in 1L..MAX_PHOTO_BYTES) { "Photo size invalid" }
         val plaintext = source.readBytes()
         val aad = aad(mediaId)
         val encrypted = keyManager.encrypt(plaintext, aad)
