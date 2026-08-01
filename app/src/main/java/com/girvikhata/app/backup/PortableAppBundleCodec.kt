@@ -6,28 +6,37 @@ import org.json.JSONObject
 import java.util.Base64
 
 /**
- * Portable bundle v2: business snapshot + master catalog + already device-encrypted media blobs.
- * Bundle v1 and legacy snapshot-only payloads remain readable.
+ * Portable bundle v3:
+ * - business snapshot
+ * - master catalog
+ * - portable photo bytes, protected by the outer recovery-key encrypted .gkb envelope
+ *
+ * v2 device-encrypted .gkm media and v1/legacy snapshot payloads remain readable.
  */
 object PortableAppBundleCodec {
-    private const val CURRENT_BUNDLE_VERSION = 2
+    private const val CURRENT_BUNDLE_VERSION = 3
 
     data class DecodedBundle(
         val snapshot: AppSnapshot,
         val masterCatalog: MasterCatalog,
         val containsPortableMasters: Boolean,
         val encryptedMedia: Map<String, ByteArray> = emptyMap(),
-    )
+        val portableMedia: Map<String, ByteArray> = emptyMap(),
+    ) {
+        val mediaCount: Int get() = if (portableMedia.isNotEmpty()) portableMedia.size else encryptedMedia.size
+        val hasPortableMedia: Boolean get() = portableMedia.isNotEmpty()
+    }
 
     fun encode(snapshot: AppSnapshot, masterCatalog: MasterCatalog): ByteArray =
-        encode(snapshot, masterCatalog, emptyMap())
+        encodePortable(snapshot, masterCatalog, emptyMap())
 
+    /** Legacy v2 encoder retained for old tests/import tooling. New backup code should use encodePortable. */
     fun encode(
         snapshot: AppSnapshot,
         masterCatalog: MasterCatalog,
         encryptedMedia: Map<String, ByteArray>,
     ): ByteArray = JSONObject().apply {
-        put("bundleVersion", CURRENT_BUNDLE_VERSION)
+        put("bundleVersion", 2)
         put("snapshot", Base64.getEncoder().encodeToString(SnapshotPortableCodec.encode(snapshot)))
         put("masterCatalog", Base64.getEncoder().encodeToString(MasterCatalogPortableCodec.encode(masterCatalog)))
         put("media", JSONObject().apply {
@@ -39,6 +48,24 @@ object PortableAppBundleCodec {
         })
     }.toString().toByteArray(Charsets.UTF_8)
 
+    fun encodePortable(
+        snapshot: AppSnapshot,
+        masterCatalog: MasterCatalog,
+        portableMedia: Map<String, ByteArray>,
+    ): ByteArray {
+        PortableMediaSupport.validate(portableMedia)
+        return JSONObject().apply {
+            put("bundleVersion", CURRENT_BUNDLE_VERSION)
+            put("snapshot", Base64.getEncoder().encodeToString(SnapshotPortableCodec.encode(snapshot)))
+            put("masterCatalog", Base64.getEncoder().encodeToString(MasterCatalogPortableCodec.encode(masterCatalog)))
+            put("portableMedia", JSONObject().apply {
+                portableMedia.toSortedMap().forEach { (id, bytes) ->
+                    put(id, Base64.getEncoder().encodeToString(bytes))
+                }
+            })
+        }.toString().toByteArray(Charsets.UTF_8)
+    }
+
     fun decode(payload: ByteArray): DecodedBundle {
         require(payload.isNotEmpty()) { "Backup payload empty" }
         val root = runCatching { JSONObject(String(payload, Charsets.UTF_8)) }.getOrNull()
@@ -47,7 +74,6 @@ object PortableAppBundleCodec {
                 snapshot = SnapshotPortableCodec.decode(payload),
                 masterCatalog = MasterCatalog(),
                 containsPortableMasters = false,
-                encryptedMedia = emptyMap(),
             )
         }
 
@@ -55,25 +81,37 @@ object PortableAppBundleCodec {
         require(version in 1..CURRENT_BUNDLE_VERSION) { "Backup bundle version unsupported" }
         val snapshotBytes = decodeBase64(root.optString("snapshot"), "Business snapshot missing")
         val masterBytes = decodeBase64(root.optString("masterCatalog"), "Master catalog missing")
-        val media = if (version >= 2) decodeMedia(root.optJSONObject("media")) else emptyMap()
+        val encrypted = if (version == 2) decodeLegacyEncryptedMedia(root.optJSONObject("media")) else emptyMap()
+        val portable = if (version >= 3) decodePortableMedia(root.optJSONObject("portableMedia")) else emptyMap()
         return DecodedBundle(
             snapshot = SnapshotPortableCodec.decode(snapshotBytes),
             masterCatalog = MasterCatalogPortableCodec.decode(masterBytes),
             containsPortableMasters = true,
-            encryptedMedia = media,
+            encryptedMedia = encrypted,
+            portableMedia = portable,
         )
     }
 
-    private fun decodeMedia(root: JSONObject?): Map<String, ByteArray> {
+    private fun decodeLegacyEncryptedMedia(root: JSONObject?): Map<String, ByteArray> {
         if (root == null) return emptyMap()
         val result = linkedMapOf<String, ByteArray>()
-        val keys = root.keys().asSequence().toList().sorted()
-        keys.forEach { name ->
+        root.keys().asSequence().toList().sorted().forEach { name ->
             require(name.matches(Regex("[A-Za-z0-9._-]{1,140}\\.gkm"))) { "Backup media name invalid" }
             val bytes = decodeBase64(root.optString(name), "Backup media missing")
             require(bytes.size <= 24 * 1024 * 1024) { "Backup media too large" }
             result[name] = bytes
         }
+        return result
+    }
+
+    private fun decodePortableMedia(root: JSONObject?): Map<String, ByteArray> {
+        if (root == null) return emptyMap()
+        val result = linkedMapOf<String, ByteArray>()
+        root.keys().asSequence().toList().sorted().forEach { id ->
+            require(id.matches(Regex("[A-Za-z0-9._-]{1,100}"))) { "Portable media id invalid" }
+            result[id] = decodeBase64(root.optString(id), "Portable media missing")
+        }
+        PortableMediaSupport.validate(result)
         return result
     }
 
