@@ -76,6 +76,43 @@ class BlueprintLedgerEngineTest {
     }
 
     @Test
+    fun `historical settlement excludes additional advance that happened later`() {
+        val start = day(2026, 1, 1)
+        val laterAdvance = GirviAdvanceMetadata.Advance(
+            id = "a-later",
+            amountPaise = 50_000L,
+            createdAt = day(2026, 2, 1),
+            terms = terms,
+        )
+        val item = GirviItemRecord(
+            id = "i1",
+            categoryName = "Gold",
+            itemName = "Ring",
+            description = GirviInterestMetadata.attach("", terms),
+        )
+        val girvi = GirviRecord(
+            id = "g1",
+            girviNumber = "G-001",
+            customerId = "c1",
+            customerName = "Ravi",
+            categoryName = "Gold",
+            itemName = "Ring",
+            weightGrams = "5",
+            principalPaise = 100_000L,
+            monthlyRateBasisPoints = 200,
+            createdAt = start,
+            items = listOf(item),
+            releaseNote = GirviAdvanceMetadata.attach("", listOf(laterAdvance)),
+        )
+
+        val result = BlueprintLedgerEngine.project(girvi, day(2026, 1, 16))
+
+        assertEquals(100_000L, result.totalAdvancedPaise)
+        assertEquals(1, result.advances.size)
+        assertEquals(true, result.advances.single().original)
+    }
+
+    @Test
     fun `reversal removes original payment from effective ledger`() {
         val original = PaymentRecord(
             id = "p1",
