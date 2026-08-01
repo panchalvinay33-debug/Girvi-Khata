@@ -2,12 +2,15 @@ package com.girvikhata.app.data
 
 import android.content.Context
 import android.os.FileObserver
+import com.girvikhata.app.backup.AutoBackupConfig
+import com.girvikhata.app.backup.AutoBackupWorker
 import java.io.File
 import java.util.concurrent.Executors
 
 /**
  * Records only committed primary-store replacements. Temporary and safety-copy writes are ignored.
- * Every verified commit is mirrored into the relational shadow and then master-ID links are verified.
+ * Every verified commit is mirrored into the relational shadow and, when configured, queues an
+ * off-device encrypted backup generation.
  */
 class BusinessCommitObserver(context: Context) {
     private val appContext = context.applicationContext
@@ -68,6 +71,10 @@ class BusinessCommitObserver(context: Context) {
                     )
                 }
             }
+
+        if (AutoBackupConfig(appContext).status().enabled) {
+            runCatching { AutoBackupWorker.enqueueNow(appContext) }
+        }
     }
 
     private fun synchronizeMasterLinks(snapshot: AppSnapshot) {
