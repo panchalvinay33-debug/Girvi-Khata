@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.data.VerifiedWriteRecoveryRepair
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 
@@ -35,6 +36,7 @@ class PracticalEntryGateActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val security = SecurityPreferences(applicationContext)
+        val recoveryRepair = VerifiedWriteRecoveryRepair(applicationContext)
         setContent {
             MaterialTheme {
                 var pin by remember { mutableStateOf("") }
@@ -59,8 +61,17 @@ class PracticalEntryGateActivity : FragmentActivity() {
                         onClick = {
                             when (val result = security.verify(pin.toCharArray())) {
                                 PinVerificationResult.Success -> {
-                                    startActivity(Intent(this@PracticalEntryGateActivity, PracticalEntryActivity::class.java))
-                                    finish()
+                                    runCatching { recoveryRepair.repairIfBlocked() }
+                                        .onSuccess { repair ->
+                                            if (repair.repaired) {
+                                                message = "पिछला अधूरा save सुरक्षित रूप से ठीक किया गया / Previous interrupted save repaired"
+                                            }
+                                            startActivity(Intent(this@PracticalEntryGateActivity, PracticalEntryActivity::class.java))
+                                            finish()
+                                        }
+                                        .onFailure { failure ->
+                                            message = "Save recovery blocked: ${failure.message ?: failure::class.java.simpleName}"
+                                        }
                                 }
                                 PinVerificationResult.NotConfigured -> message = "पहले main app में PIN setup करें / Set up PIN first"
                                 is PinVerificationResult.Locked -> message = "Security lock active है; बाद में कोशिश करें"
