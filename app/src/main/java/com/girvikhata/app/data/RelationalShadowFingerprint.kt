@@ -52,16 +52,36 @@ object RelationalShadowFingerprint {
         payments = snapshot.girvis.sumOf { it.payments.size },
     )
 
-    fun stableItems(girvi: GirviRecord): List<GirviItemRecord> = girvi.items.ifEmpty {
-        listOf(
-            GirviItemRecord(
-                id = "legacy-item-${girvi.id}",
-                categoryName = girvi.categoryName,
-                itemName = girvi.itemName,
-                grossWeightGrams = girvi.weightGrams,
-            ),
-        )
+    /**
+     * Old snapshot formats stored only the parent girvi item fields. During schema-3 decoding they
+     * can appear as one synthesized GirviItemRecord whose default UUID changes on every read.
+     * Canonicalize only that legacy-shaped single item so repeated reads of unchanged encrypted
+     * business data have the same fingerprint. Explicit multi-item/new item identities remain intact.
+     */
+    fun stableItems(girvi: GirviRecord): List<GirviItemRecord> {
+        if (girvi.items.isEmpty()) return listOf(legacyItem(girvi))
+        if (girvi.items.size == 1 && looksLikeLegacySynthesizedItem(girvi, girvi.items.single())) {
+            return listOf(girvi.items.single().copy(id = legacyItemId(girvi.id)))
+        }
+        return girvi.items
     }
+
+    private fun looksLikeLegacySynthesizedItem(girvi: GirviRecord, item: GirviItemRecord): Boolean =
+        item.quantity == 1 &&
+            item.categoryName == girvi.categoryName &&
+            item.itemName == girvi.itemName &&
+            item.grossWeightGrams == girvi.weightGrams &&
+            item.deductionWeightGrams.isBlank() &&
+            item.description.isBlank()
+
+    private fun legacyItem(girvi: GirviRecord) = GirviItemRecord(
+        id = legacyItemId(girvi.id),
+        categoryName = girvi.categoryName,
+        itemName = girvi.itemName,
+        grossWeightGrams = girvi.weightGrams,
+    )
+
+    private fun legacyItemId(girviId: String): String = "legacy-item-$girviId"
 
     private fun escape(value: String): String = value
         .replace("\\", "\\\\")
