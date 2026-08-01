@@ -27,18 +27,20 @@ class VerifiedBusinessWriteCoordinator(
             "Unresolved interrupted transaction ${recovery.transactionId ?: "unknown"}; recovery required before new writes"
         }
 
+        // IMPORTANT: validate the caller's fingerprint before creating a PENDING intent.
+        // A stale screen snapshot is not a transaction and must never poison future writes.
+        val before = records.load()
+        val beforeFingerprint = RelationalShadowFingerprint.sha256(before)
+        require(request.expectedFingerprint == beforeFingerprint) {
+            "Business data changed before transaction ${request.transactionId}; refresh and retry"
+        }
+
         intentStore.begin(
             transactionId = request.transactionId,
             mutationLabel = request.mutation.auditLabel,
-            expectedFingerprint = request.expectedFingerprint,
+            expectedFingerprint = beforeFingerprint,
         )
         return try {
-            val before = records.load()
-            val beforeFingerprint = RelationalShadowFingerprint.sha256(before)
-            require(request.expectedFingerprint == beforeFingerprint) {
-                "Business data changed before transaction ${request.transactionId}; refresh and retry"
-            }
-
             val target = request.mutation.apply(before)
             require(target != before) { "Transaction ${request.transactionId} produced no business change" }
             validateTarget(target)
