@@ -12,10 +12,12 @@ object RelationalShadowFingerprint {
                     .append(escape(c.mobile)).append('|').append(escape(c.address)).append('|')
                     .append(c.createdAt).append('\n')
             }
-            snapshot.categories.sortedBy { it.id }.forEach { c ->
-                append("K|").append(c.id).append('|').append(escape(c.name)).append('|')
-                    .append(if (c.active) 1 else 0).append('\n')
-            }
+            snapshot.categories
+                .sortedWith(compareBy<CategoryRecord> { stableCategoryIdentity(it) }.thenBy { it.name })
+                .forEach { c ->
+                    append("K|").append(stableCategoryIdentity(c)).append('|').append(escape(c.name)).append('|')
+                        .append(if (c.active) 1 else 0).append('\n')
+                }
             snapshot.girvis.sortedBy { it.id }.forEach { g ->
                 append("G|").append(g.id).append('|').append(escape(g.girviNumber)).append('|')
                     .append(g.customerId).append('|').append(escape(g.customerName)).append('|')
@@ -53,6 +55,17 @@ object RelationalShadowFingerprint {
     )
 
     /**
+     * Default categories are generated before the first encrypted snapshot exists. Older builds
+     * assigned fresh UUIDs on every load, so an otherwise empty app produced a different fingerprint
+     * every time and could never pass the first verified write. Treat only the built-in untouched
+     * category names as semantic identities; custom/renamed categories still use their real IDs.
+     */
+    internal fun stableCategoryIdentity(category: CategoryRecord): String {
+        val normalized = category.name.trim().lowercase()
+        return if (normalized in BUILT_IN_DEFAULT_CATEGORIES) "builtin-category:$normalized" else category.id
+    }
+
+    /**
      * Old snapshot formats stored only the parent girvi item fields. During schema-3 decoding they
      * can appear as one synthesized GirviItemRecord whose default UUID changes on every read.
      * Canonicalize only that legacy-shaped single item so repeated reads of unchanged encrypted
@@ -87,6 +100,13 @@ object RelationalShadowFingerprint {
         .replace("\\", "\\\\")
         .replace("|", "\\|")
         .replace("\n", "\\n")
+
+    private val BUILT_IN_DEFAULT_CATEGORIES = setOf(
+        "jewellery",
+        "electronics",
+        "documents",
+        "other",
+    )
 }
 
 data class RelationalShadowCounts(
