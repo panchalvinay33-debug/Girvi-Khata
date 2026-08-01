@@ -8,6 +8,7 @@ class AutoBackupConfig(context: Context) {
 
     data class Status(
         val enabled: Boolean,
+        val recoveryKeyAcknowledged: Boolean,
         val folderUri: String?,
         val lastSuccessAt: Long,
         val lastAttemptAt: Long,
@@ -18,6 +19,7 @@ class AutoBackupConfig(context: Context) {
 
     fun status(): Status = Status(
         enabled = prefs.getBoolean(KEY_ENABLED, false),
+        recoveryKeyAcknowledged = prefs.getBoolean(KEY_KEY_ACK, false),
         folderUri = prefs.getString(KEY_FOLDER_URI, null),
         lastSuccessAt = prefs.getLong(KEY_LAST_SUCCESS, 0L),
         lastAttemptAt = prefs.getLong(KEY_LAST_ATTEMPT, 0L),
@@ -26,7 +28,10 @@ class AutoBackupConfig(context: Context) {
         generationCount = prefs.getInt(KEY_GENERATIONS, 0),
     )
 
+    fun acknowledgeRecoveryKey() = prefs.edit().putBoolean(KEY_KEY_ACK, true).apply()
+
     fun configure(folder: Uri, enabled: Boolean = true) {
+        require(status().recoveryKeyAcknowledged) { "Pehle Recovery Key ko phone ke bahar save karke confirm karein" }
         prefs.edit()
             .putString(KEY_FOLDER_URI, folder.toString())
             .putBoolean(KEY_ENABLED, enabled)
@@ -34,7 +39,10 @@ class AutoBackupConfig(context: Context) {
             .apply()
     }
 
-    fun setEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
+    fun setEnabled(enabled: Boolean) {
+        if (enabled) require(status().recoveryKeyAcknowledged) { "Recovery Key acknowledgement required" }
+        prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
+    }
 
     fun recordAttempt() = prefs.edit().putLong(KEY_LAST_ATTEMPT, System.currentTimeMillis()).apply()
 
@@ -54,6 +62,7 @@ class AutoBackupConfig(context: Context) {
     companion object {
         private const val PREFS = "auto_backup_v1"
         private const val KEY_ENABLED = "enabled"
+        private const val KEY_KEY_ACK = "recovery_key_acknowledged"
         private const val KEY_FOLDER_URI = "folder_uri"
         private const val KEY_LAST_SUCCESS = "last_success"
         private const val KEY_LAST_ATTEMPT = "last_attempt"
