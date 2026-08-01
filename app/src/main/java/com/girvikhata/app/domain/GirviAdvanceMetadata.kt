@@ -55,7 +55,7 @@ object GirviAdvanceMetadata {
 
     fun strip(value: String?): String {
         if (value.isNullOrBlank()) return ""
-        var result = value
+        var result: String = value
         while (true) {
             val start = result.indexOf(START)
             if (start < 0) break
