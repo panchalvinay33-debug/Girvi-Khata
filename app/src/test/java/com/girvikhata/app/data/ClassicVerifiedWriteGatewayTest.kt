@@ -21,7 +21,7 @@ class ClassicVerifiedWriteGatewayTest {
     )
 
     @Test
-    fun `gateway executes typed request with screen fingerprint and returns authoritative reload`() {
+    fun `gateway executes typed mutation and returns authoritative result`() {
         val before = AppSnapshot(customers = listOf(customer), girvis = listOf(girvi))
         val payment = PaymentRecord(
             id = "p1",
@@ -32,25 +32,41 @@ class ClassicVerifiedWriteGatewayTest {
             createdAt = 3L,
         )
         val proposed = before.copy(girvis = listOf(girvi.copy(payments = listOf(payment))))
-        val authoritative = proposed.copy(schemaVersion = proposed.schemaVersion)
-        var captured: VerifiedBusinessWriteRequest? = null
-        var reloads = 0
+        var captured: VerifiedBusinessMutation? = null
         val gateway = ClassicVerifiedWriteGateway(
-            reloadAuthoritative = { reloads += 1; authoritative },
-            executeVerified = { captured = it },
+            reloadAuthoritative = { before },
+            executeMutation = { mutation ->
+                captured = mutation
+                mutation.apply(before)
+            },
         )
 
         val result = gateway.persist(before, proposed)
 
-        assertEquals(authoritative, result)
-        assertEquals(1, reloads)
-        assertEquals(RelationalShadowFingerprint.sha256(before), captured?.expectedFingerprint)
-        assertTrue(captured?.mutation is VerifiedBusinessMutation.AppendPayment)
-        assertTrue(captured?.title?.contains(payment.receiptNumber) == true)
+        assertTrue(captured is VerifiedBusinessMutation.AppendPayment)
+        assertEquals(listOf(payment), result.girvis.single().payments)
     }
 
     @Test
-    fun `gateway does not execute or reload when classifier rejects mixed change`() {
+    fun `gateway practical create mutation can apply to fresher authoritative snapshot`() {
+        val screen = AppSnapshot(customers = listOf(customer))
+        val extra = CustomerRecord(id = "c2", name = "Sita", createdAt = 2L)
+        val fresh = screen.copy(customers = listOf(customer, extra))
+        val newGirvi = girvi.copy(id = "g2", girviNumber = "G-002")
+        val proposed = screen.copy(girvis = listOf(newGirvi))
+        val gateway = ClassicVerifiedWriteGateway(
+            reloadAuthoritative = { fresh },
+            executeMutation = { mutation -> mutation.apply(fresh) },
+        )
+
+        val result = gateway.persist(screen, proposed)
+
+        assertTrue(result.customers.any { it.id == extra.id })
+        assertTrue(result.girvis.any { it.id == newGirvi.id })
+    }
+
+    @Test
+    fun `gateway does not execute when classifier rejects mixed change`() {
         val category = CategoryRecord(id = "cat1", name = "Gold")
         val before = AppSnapshot(customers = listOf(customer), categories = listOf(category))
         val mixed = before.copy(
@@ -58,16 +74,14 @@ class ClassicVerifiedWriteGatewayTest {
             categories = listOf(category.copy(active = false)),
         )
         var executions = 0
-        var reloads = 0
         val gateway = ClassicVerifiedWriteGateway(
-            reloadAuthoritative = { reloads += 1; before },
-            executeVerified = { executions += 1 },
+            reloadAuthoritative = { before },
+            executeMutation = { mutation -> executions += 1; mutation.apply(before) },
         )
 
         val failure = runCatching { gateway.persist(before, mixed) }.exceptionOrNull()
 
         assertNotEquals(null, failure)
         assertEquals(0, executions)
-        assertEquals(0, reloads)
     }
 }
