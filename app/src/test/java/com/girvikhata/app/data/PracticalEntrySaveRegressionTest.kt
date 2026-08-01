@@ -15,9 +15,10 @@ class PracticalEntrySaveRegressionTest {
             customerName = customer.name,
             categoryName = "Gold",
             itemName = "Ring",
+            weightGrams = "10",
             principalPaise = 10_000_00,
             monthlyRateBasisPoints = 200,
-            items = listOf(GirviItemRecord(categoryName = "Gold", itemName = "Ring")),
+            items = listOf(GirviItemRecord(categoryName = "Gold", itemName = "Ring", grossWeightGrams = "10")),
         )
         val next = before.copy(customers = listOf(customer), girvis = listOf(girvi))
         var authoritative = before
@@ -49,9 +50,10 @@ class PracticalEntrySaveRegressionTest {
             customerName = editedCustomer.name,
             categoryName = "Silver",
             itemName = "Payal",
+            weightGrams = "25",
             principalPaise = 5_000_00,
             monthlyRateBasisPoints = 250,
-            items = listOf(GirviItemRecord(categoryName = "Silver", itemName = "Payal")),
+            items = listOf(GirviItemRecord(categoryName = "Silver", itemName = "Payal", grossWeightGrams = "25")),
         )
         val next = before.copy(customers = listOf(editedCustomer), girvis = listOf(girvi))
         var authoritative = before
