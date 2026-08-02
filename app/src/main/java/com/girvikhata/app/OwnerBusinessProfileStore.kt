@@ -37,7 +37,7 @@ class OwnerBusinessProfileStore(context: Context) {
         internal fun normalize(profile: OwnerBusinessProfile): OwnerBusinessProfile {
             val businessName = singleLine(profile.businessName).take(MAX_NAME_LENGTH)
             val ownerName = singleLine(profile.ownerName).take(MAX_NAME_LENGTH)
-            val mobile = profile.mobile.filter(Char::isDigit).take(10)
+            val mobile = normalizeIndianMobile(profile.mobile)
             val address = profile.address.trim().replace(Regex("\\s+"), " ").take(MAX_ADDRESS_LENGTH)
             require(businessName.isNotBlank()) { "Dukaan / business ka naam required hai" }
             require(ownerName.isNotBlank()) { "Owner / user ka naam required hai" }
@@ -48,6 +48,15 @@ class OwnerBusinessProfileStore(context: Context) {
                 mobile = mobile,
                 address = address,
             )
+        }
+
+        internal fun normalizeIndianMobile(value: String): String {
+            val digits = value.filter(Char::isDigit)
+            return when {
+                digits.length == 12 && digits.startsWith("91") -> digits.takeLast(10)
+                digits.length == 11 && digits.startsWith("0") -> digits.takeLast(10)
+                else -> digits.take(10)
+            }
         }
 
         private fun singleLine(value: String): String = value.trim().replace(Regex("\\s+"), " ")
