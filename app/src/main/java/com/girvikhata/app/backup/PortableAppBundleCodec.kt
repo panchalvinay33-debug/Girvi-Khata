@@ -1,20 +1,22 @@
 package com.girvikhata.app.backup
 
+import com.girvikhata.app.OwnerBusinessProfile
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.domain.MasterCatalog
 import org.json.JSONObject
 import java.util.Base64
 
 /**
- * Portable bundle v3:
+ * Portable bundle v4:
  * - business snapshot
  * - master catalog
- * - portable photo bytes, protected by the outer recovery-key encrypted .gkb envelope
+ * - portable photo bytes
+ * - owner/business profile used for app identity and branded exports
  *
- * v2 device-encrypted .gkm media and v1/legacy snapshot payloads remain readable.
+ * v3 portable-media, v2 device-encrypted-media and v1/legacy snapshot payloads remain readable.
  */
 object PortableAppBundleCodec {
-    private const val CURRENT_BUNDLE_VERSION = 3
+    private const val CURRENT_BUNDLE_VERSION = 4
 
     data class DecodedBundle(
         val snapshot: AppSnapshot,
@@ -22,6 +24,7 @@ object PortableAppBundleCodec {
         val containsPortableMasters: Boolean,
         val encryptedMedia: Map<String, ByteArray> = emptyMap(),
         val portableMedia: Map<String, ByteArray> = emptyMap(),
+        val ownerProfile: OwnerBusinessProfile? = null,
     ) {
         val mediaCount: Int get() = if (portableMedia.isNotEmpty()) portableMedia.size else encryptedMedia.size
         val hasPortableMedia: Boolean get() = portableMedia.isNotEmpty()
@@ -52,6 +55,7 @@ object PortableAppBundleCodec {
         snapshot: AppSnapshot,
         masterCatalog: MasterCatalog,
         portableMedia: Map<String, ByteArray>,
+        ownerProfile: OwnerBusinessProfile? = null,
     ): ByteArray {
         PortableMediaSupport.validate(portableMedia)
         return JSONObject().apply {
@@ -63,6 +67,14 @@ object PortableAppBundleCodec {
                     put(id, Base64.getEncoder().encodeToString(bytes))
                 }
             })
+            ownerProfile?.let { profile ->
+                put("ownerProfile", JSONObject().apply {
+                    put("businessName", profile.businessName)
+                    put("ownerName", profile.ownerName)
+                    put("mobile", profile.mobile)
+                    put("address", profile.address)
+                })
+            }
         }.toString().toByteArray(Charsets.UTF_8)
     }
 
@@ -83,12 +95,27 @@ object PortableAppBundleCodec {
         val masterBytes = decodeBase64(root.optString("masterCatalog"), "Master catalog missing")
         val encrypted = if (version == 2) decodeLegacyEncryptedMedia(root.optJSONObject("media")) else emptyMap()
         val portable = if (version >= 3) decodePortableMedia(root.optJSONObject("portableMedia")) else emptyMap()
+        val ownerProfile = if (version >= 4) decodeOwnerProfile(root.optJSONObject("ownerProfile")) else null
         return DecodedBundle(
             snapshot = SnapshotPortableCodec.decode(snapshotBytes),
             masterCatalog = MasterCatalogPortableCodec.decode(masterBytes),
             containsPortableMasters = true,
             encryptedMedia = encrypted,
             portableMedia = portable,
+            ownerProfile = ownerProfile,
+        )
+    }
+
+    private fun decodeOwnerProfile(root: JSONObject?): OwnerBusinessProfile? {
+        if (root == null) return null
+        val businessName = root.optString("businessName").trim()
+        val ownerName = root.optString("ownerName").trim()
+        if (businessName.isBlank() || ownerName.isBlank()) return null
+        return OwnerBusinessProfile(
+            businessName = businessName.take(120),
+            ownerName = ownerName.take(120),
+            mobile = root.optString("mobile").filter(Char::isDigit).take(10),
+            address = root.optString("address").trim().take(240),
         )
     }
 
