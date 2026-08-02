@@ -3,26 +3,41 @@ package com.girvikhata.app.export
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import com.girvikhata.app.OwnerBusinessProfileStore
 import java.io.File
 
 object SecureShare {
     fun shareText(context: Context, subject: String, text: String) {
+        val profile = OwnerBusinessProfileStore(context.applicationContext).load()
+        val brandedSubject = brandedSubject(profile.businessName, subject)
+        val brandedText = buildString {
+            if (profile.businessName.isNotBlank()) {
+                appendLine(profile.businessName)
+                if (profile.ownerName.isNotBlank()) appendLine("Owner: ${profile.ownerName}")
+                if (profile.mobile.isNotBlank()) appendLine("Mobile: ${profile.mobile}")
+                if (profile.address.isNotBlank()) appendLine(profile.address)
+                appendLine("--------------------------------")
+            }
+            append(text.trim())
+        }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, subject)
-            putExtra(Intent.EXTRA_TEXT, text)
+            putExtra(Intent.EXTRA_SUBJECT, brandedSubject)
+            putExtra(Intent.EXTRA_TEXT, brandedText)
         }
-        context.startActivity(Intent.createChooser(intent, subject))
+        context.startActivity(Intent.createChooser(intent, brandedSubject))
     }
 
-    fun shareCsv(context: Context, fileName: String, csv: String) =
+    fun shareCsv(context: Context, fileName: String, csv: String) {
+        val businessName = OwnerBusinessProfileStore(context.applicationContext).load().businessName
         shareBinary(
             context = context,
             fileName = fileName,
             mimeType = "text/csv",
             bytes = csv.toByteArray(Charsets.UTF_8),
-            subject = "Girvi Khata Collection Report",
+            subject = brandedSubject(businessName, "Girvi Khata Collection Report"),
         )
+    }
 
     fun shareBinary(context: Context, fileName: String, mimeType: String, bytes: ByteArray, subject: String) {
         require(bytes.isNotEmpty()) { "Share file is empty" }
@@ -41,6 +56,9 @@ object SecureShare {
         }
         context.startActivity(Intent.createChooser(intent, subject))
     }
+
+    internal fun brandedSubject(businessName: String, subject: String): String =
+        businessName.trim().takeIf(String::isNotBlank)?.let { "$it • $subject" } ?: subject
 
     private const val MAX_CACHE_AGE_MILLIS = 24L * 60L * 60L * 1000L
 }
