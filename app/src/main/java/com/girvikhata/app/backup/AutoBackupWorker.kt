@@ -12,7 +12,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.girvikhata.app.OwnerBusinessProfileStore
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
@@ -41,10 +40,7 @@ class AutoBackupWorker(
             try {
                 val snapshot = EncryptedRecordStore(applicationContext).load()
                 val masters = EncryptedMasterCatalogStore(applicationContext).load()
-                val profile = OwnerBusinessProfileStore(applicationContext).load().takeIf {
-                    it.businessName.isNotBlank() && it.ownerName.isNotBlank()
-                }
-                val payload = PortableAppBundleCodec.encodePortable(snapshot, masters, media, profile)
+                val payload = PortableAppBundleCodec.encodePortable(snapshot, masters, media)
                 val encrypted = PortableBackupCrypto.encrypt(payload, secret, snapshot.schemaVersion)
                 val folderUri = Uri.parse(status.folderUri)
                 val folder = DocumentFile.fromTreeUri(applicationContext, folderUri)
@@ -76,7 +72,6 @@ class AutoBackupWorker(
                 require(decoded.portableMedia.all { (id, bytes) -> media[id]?.contentEquals(bytes) == true }) {
                     "Automatic backup photo content verification failed"
                 }
-                if (profile != null) require(decoded.ownerProfile == profile) { "Automatic backup owner profile verification failed" }
                 verifiedTarget = true
 
                 val generations = pruneGenerations(folder)
