@@ -16,14 +16,7 @@ class OwnerBusinessProfileStore(context: Context) {
     fun isConfigured(): Boolean = load().let { it.businessName.isNotBlank() && it.ownerName.isNotBlank() }
 
     fun save(profile: OwnerBusinessProfile) {
-        val normalized = profile.copy(
-            businessName = profile.businessName.trim(),
-            ownerName = profile.ownerName.trim(),
-            mobile = profile.mobile.filter(Char::isDigit).take(10),
-            address = profile.address.trim(),
-        )
-        require(normalized.businessName.isNotBlank()) { "Dukaan / business ka naam required hai" }
-        require(normalized.ownerName.isNotBlank()) { "Owner / user ka naam required hai" }
+        val normalized = normalize(profile)
         preferences.edit()
             .putString(KEY_BUSINESS_NAME, normalized.businessName)
             .putString(KEY_OWNER_NAME, normalized.ownerName)
@@ -38,6 +31,26 @@ class OwnerBusinessProfileStore(context: Context) {
         private const val KEY_OWNER_NAME = "owner_name"
         private const val KEY_MOBILE = "mobile"
         private const val KEY_ADDRESS = "address"
+        private const val MAX_NAME_LENGTH = 80
+        private const val MAX_ADDRESS_LENGTH = 180
+
+        internal fun normalize(profile: OwnerBusinessProfile): OwnerBusinessProfile {
+            val businessName = singleLine(profile.businessName).take(MAX_NAME_LENGTH)
+            val ownerName = singleLine(profile.ownerName).take(MAX_NAME_LENGTH)
+            val mobile = profile.mobile.filter(Char::isDigit).take(10)
+            val address = profile.address.trim().replace(Regex("\\s+"), " ").take(MAX_ADDRESS_LENGTH)
+            require(businessName.isNotBlank()) { "Dukaan / business ka naam required hai" }
+            require(ownerName.isNotBlank()) { "Owner / user ka naam required hai" }
+            require(mobile.isBlank() || mobile.length == 10) { "Mobile number 10 digits ka hona chahiye" }
+            return OwnerBusinessProfile(
+                businessName = businessName,
+                ownerName = ownerName,
+                mobile = mobile,
+                address = address,
+            )
+        }
+
+        private fun singleLine(value: String): String = value.trim().replace(Regex("\\s+"), " ")
     }
 }
 
