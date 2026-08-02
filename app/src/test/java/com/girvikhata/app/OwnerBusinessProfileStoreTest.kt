@@ -6,7 +6,7 @@ import org.junit.Test
 
 class OwnerBusinessProfileStoreTest {
     @Test
-    fun normalize_trimsWhitespaceAndDigits() {
+    fun normalize_trimsWhitespaceAndIndianPrefix() {
         val normalized = OwnerBusinessProfileStore.normalize(
             OwnerBusinessProfile(
                 businessName = "  Shree   Shyam\nJewellers ",
@@ -18,7 +18,7 @@ class OwnerBusinessProfileStoreTest {
 
         assertEquals("Shree Shyam Jewellers", normalized.businessName)
         assertEquals("Vinay Panchal", normalized.ownerName)
-        assertEquals("9198765432", normalized.mobile)
+        assertEquals("9876543210", normalized.mobile)
         assertEquals("Main Road Pitol", normalized.address)
     }
 
@@ -39,5 +39,10 @@ class OwnerBusinessProfileStoreTest {
         assertThrows(IllegalArgumentException::class.java) {
             OwnerBusinessProfileStore.normalize(OwnerBusinessProfile("Shop", ""))
         }
+    }
+
+    @Test
+    fun normalize_acceptsLeadingZeroIndianMobile() {
+        assertEquals("9876543210", OwnerBusinessProfileStore.normalizeIndianMobile("09876543210"))
     }
 }
