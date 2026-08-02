@@ -71,6 +71,7 @@ class MainActivity : FragmentActivity() {
                     is RecordStoreLoadState.Ready -> {
                         val untouchedFreshInstall = !securityPreferences.hasPin() &&
                             state.snapshot.customers.isEmpty() && state.snapshot.girvis.isEmpty()
+                        val profileMissing = profile.businessName.isBlank() || profile.ownerName.isBlank()
                         when {
                             untouchedFreshInstall && setupProfile -> BusinessProfileSetup(
                                 initial = profile,
@@ -85,6 +86,14 @@ class MainActivity : FragmentActivity() {
                             untouchedFreshInstall && !startFreshKhata -> FirstRunRecoveryChoice(
                                 newKhata = { setupProfile = true },
                                 recoverExisting = { startActivity(Intent(this@MainActivity, RestoreActivity::class.java)) },
+                            )
+                            profileMissing -> BusinessProfileSetup(
+                                initial = profile,
+                                save = { updated ->
+                                    profileStore.save(updated)
+                                    profile = profileStore.load()
+                                },
+                                back = null,
                             )
                             else -> BlueprintGirviKhataRoot(
                                 securityPreferences = securityPreferences,
@@ -179,13 +188,15 @@ private fun FirstRunRecoveryChoice(newKhata: () -> Unit, recoverExisting: () -> 
 private fun BusinessProfileSetup(
     initial: OwnerBusinessProfile,
     save: (OwnerBusinessProfile) -> Unit,
-    back: () -> Unit,
+    back: (() -> Unit)?,
 ) {
     var businessName by rememberSaveable { mutableStateOf(initial.businessName) }
     var ownerName by rememberSaveable { mutableStateOf(initial.ownerName) }
     var mobile by rememberSaveable { mutableStateOf(initial.mobile) }
     var address by rememberSaveable { mutableStateOf(initial.address) }
-    var message by rememberSaveable { mutableStateOf("Ye naam app ki owner/business identity rahegi") }
+    var message by rememberSaveable { mutableStateOf("Ye naam receipts, reports aur app ki owner/business identity rahegi") }
+    val mobileValid = mobile.isBlank() || mobile.length == 10
+    val requiredReady = businessName.isNotBlank() && ownerName.isNotBlank()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -198,14 +209,14 @@ private fun BusinessProfileSetup(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = businessName,
-                    onValueChange = { businessName = it.take(60) },
+                    onValueChange = { businessName = it.take(80) },
                     label = { Text("Dukaan / Business ka naam *") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = ownerName,
-                    onValueChange = { ownerName = it.take(60) },
+                    onValueChange = { ownerName = it.take(80) },
                     label = { Text("Owner / User ka naam *") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -213,9 +224,11 @@ private fun BusinessProfileSetup(
                 OutlinedTextField(
                     value = mobile,
                     onValueChange = { mobile = it.filter(Char::isDigit).take(10) },
-                    label = { Text("Mobile (optional)") },
+                    label = { Text("Mobile (optional, 10 digits)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true,
+                    isError = !mobileValid,
+                    supportingText = { if (!mobileValid) Text("Mobile 10 digits ka hona chahiye") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -230,9 +243,12 @@ private fun BusinessProfileSetup(
                             save(OwnerBusinessProfile(businessName, ownerName, mobile, address))
                         }.onFailure { message = it.message ?: "Profile save nahi hua" }
                     },
+                    enabled = requiredReady && mobileValid,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Continue → Security Setup") }
-                OutlinedButton(onClick = back, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                back?.let { action ->
+                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                }
             }
         }
     }
