@@ -1,5 +1,7 @@
 package com.girvikhata.app.data
 
+import com.girvikhata.app.GirviKhataApplication
+import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.domain.GirviAdvanceMetadata
 import com.girvikhata.app.domain.GirviSequence
 import com.girvikhata.app.domain.InterestTerms
@@ -79,6 +81,7 @@ class BlueprintKhataRepository(
         val current = records.load().girvis.firstOrNull { it.id == girviId } ?: error("Girvi missing")
         require(current.status == "ACTIVE") { "Girvi already released" }
         require(releasedAt >= current.createdAt) { "Release date cannot be before girvi date" }
+        validateNoActiveExternalPlacement(girviId)
         val metadata = GirviAdvanceMetadata.read(current.releaseNote)
         val releaseNote = GirviAdvanceMetadata.attach(note.trim(), metadata)
         return writer.execute(
@@ -90,6 +93,18 @@ class BlueprintKhataRepository(
                 ),
             ),
         )
+    }
+
+    private fun validateNoActiveExternalPlacement(girviId: String) {
+        val context = GirviKhataApplication.appContextOrNull() ?: return
+        val custody = CustodyPlacementStore(context).load()
+        val blockingLots = custody.lots.filter { lot ->
+            lot.items.any { item -> item.girviId == girviId && item.removedAt == null }
+        }
+        require(blockingLots.isEmpty()) {
+            val lots = blockingLots.joinToString { it.lotNumber }
+            "Girvi ka item external lot ($lots) me active hai. Release se pehle item ko locker/location me wapas move karein."
+        }
     }
 
     @Synchronized
