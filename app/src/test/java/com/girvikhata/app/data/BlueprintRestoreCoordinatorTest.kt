@@ -1,5 +1,7 @@
 package com.girvikhata.app.data
 
+import com.girvikhata.app.custody.CustodyPlacementSnapshot
+import com.girvikhata.app.custody.StorageLocation
 import com.girvikhata.app.domain.MasterCatalog
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -65,6 +67,57 @@ class BlueprintRestoreCoordinatorTest {
         assertEquals(beforeBusiness, business)
         assertEquals(beforeMasters, masters)
         assertArrayEquals(beforeMedia.getValue("old.gkm"), media.getValue("old.gkm"))
+    }
+
+    @Test
+    fun `custody activation is verified and failure rolls every generation back`() {
+        val beforeBusiness = AppSnapshot.defaults()
+        val beforeMasters = MasterCatalog()
+        val beforeMedia = mapOf("old.gkm" to byteArrayOf(4))
+        val beforeCustody = CustodyPlacementSnapshot(
+            locations = listOf(StorageLocation(id = "old-locker", name = "Old Locker", createdAt = 1L)),
+        )
+        var business = beforeBusiness
+        var masters = beforeMasters
+        var media = copyMedia(beforeMedia)
+        var custody = beforeCustody
+        var failCustodyOnce = true
+
+        val targetBusiness = AppSnapshot(customers = listOf(CustomerRecord(id = "c3", name = "Asha", createdAt = 3L)))
+        val targetMedia = mapOf("new.gkm" to byteArrayOf(8))
+        val targetCustody = CustodyPlacementSnapshot(
+            locations = listOf(StorageLocation(id = "new-locker", name = "Shop Locker", createdAt = 2L)),
+        )
+        val coordinator = BlueprintRestoreCoordinator(
+            loadBusiness = { business }, saveBusiness = { business = it },
+            loadMasters = { masters }, saveMasters = { masters = it },
+            loadMedia = { media }, saveMedia = { media = copyMedia(it) },
+            loadCustody = { custody },
+            saveCustody = {
+                if (it == targetCustody && failCustodyOnce) {
+                    failCustodyOnce = false
+                    error("simulated custody activation failure")
+                }
+                custody = it
+            },
+        )
+
+        val failure = runCatching {
+            coordinator.restore(
+                targetBusiness = targetBusiness,
+                importedMasters = MasterCatalog(),
+                containsPortableMasters = true,
+                targetMedia = targetMedia,
+                targetCustody = targetCustody,
+                containsPortableCustody = true,
+            )
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertEquals(beforeBusiness, business)
+        assertEquals(beforeMasters, masters)
+        assertArrayEquals(beforeMedia.getValue("old.gkm"), media.getValue("old.gkm"))
+        assertEquals(beforeCustody, custody)
     }
 
     private fun copyMedia(source: Map<String, ByteArray>): Map<String, ByteArray> =
