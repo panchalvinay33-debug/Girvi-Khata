@@ -1,20 +1,22 @@
 package com.girvikhata.app.backup
 
+import com.girvikhata.app.custody.CustodyPlacementSnapshot
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.domain.MasterCatalog
 import org.json.JSONObject
 import java.util.Base64
 
 /**
- * Portable bundle v3:
+ * Portable bundle v4:
  * - business snapshot
  * - master catalog
- * - portable photo bytes, protected by the outer recovery-key encrypted .gkb envelope
+ * - portable photo bytes
+ * - storage/custody/external placement snapshot
  *
- * v2 device-encrypted .gkm media and v1/legacy snapshot payloads remain readable.
+ * v3 portable-media, v2 device-encrypted media and v1/legacy snapshot payloads remain readable.
  */
 object PortableAppBundleCodec {
-    private const val CURRENT_BUNDLE_VERSION = 3
+    private const val CURRENT_BUNDLE_VERSION = 4
 
     data class DecodedBundle(
         val snapshot: AppSnapshot,
@@ -22,13 +24,15 @@ object PortableAppBundleCodec {
         val containsPortableMasters: Boolean,
         val encryptedMedia: Map<String, ByteArray> = emptyMap(),
         val portableMedia: Map<String, ByteArray> = emptyMap(),
+        val custodySnapshot: CustodyPlacementSnapshot = CustodyPlacementSnapshot(),
+        val containsPortableCustody: Boolean = false,
     ) {
         val mediaCount: Int get() = if (portableMedia.isNotEmpty()) portableMedia.size else encryptedMedia.size
         val hasPortableMedia: Boolean get() = portableMedia.isNotEmpty()
     }
 
     fun encode(snapshot: AppSnapshot, masterCatalog: MasterCatalog): ByteArray =
-        encodePortable(snapshot, masterCatalog, emptyMap())
+        encodePortable(snapshot, masterCatalog, emptyMap(), CustodyPlacementSnapshot())
 
     /** Legacy v2 encoder retained for old tests/import tooling. New backup code should use encodePortable. */
     fun encode(
@@ -52,12 +56,15 @@ object PortableAppBundleCodec {
         snapshot: AppSnapshot,
         masterCatalog: MasterCatalog,
         portableMedia: Map<String, ByteArray>,
+        custodySnapshot: CustodyPlacementSnapshot = CustodyPlacementSnapshot(),
     ): ByteArray {
         PortableMediaSupport.validate(portableMedia)
+        val custodyBytes = CustodyPortableCodec.encode(custodySnapshot)
         return JSONObject().apply {
             put("bundleVersion", CURRENT_BUNDLE_VERSION)
             put("snapshot", Base64.getEncoder().encodeToString(SnapshotPortableCodec.encode(snapshot)))
             put("masterCatalog", Base64.getEncoder().encodeToString(MasterCatalogPortableCodec.encode(masterCatalog)))
+            put("custody", Base64.getEncoder().encodeToString(custodyBytes))
             put("portableMedia", JSONObject().apply {
                 portableMedia.toSortedMap().forEach { (id, bytes) ->
                     put(id, Base64.getEncoder().encodeToString(bytes))
@@ -83,12 +90,20 @@ object PortableAppBundleCodec {
         val masterBytes = decodeBase64(root.optString("masterCatalog"), "Master catalog missing")
         val encrypted = if (version == 2) decodeLegacyEncryptedMedia(root.optJSONObject("media")) else emptyMap()
         val portable = if (version >= 3) decodePortableMedia(root.optJSONObject("portableMedia")) else emptyMap()
+        val hasCustody = version >= 4 && root.optString("custody").isNotBlank()
+        val custody = if (hasCustody) {
+            CustodyPortableCodec.decode(decodeBase64(root.optString("custody"), "Custody placement missing"))
+        } else {
+            CustodyPlacementSnapshot()
+        }
         return DecodedBundle(
             snapshot = SnapshotPortableCodec.decode(snapshotBytes),
             masterCatalog = MasterCatalogPortableCodec.decode(masterBytes),
             containsPortableMasters = true,
             encryptedMedia = encrypted,
             portableMedia = portable,
+            custodySnapshot = custody,
+            containsPortableCustody = hasCustody,
         )
     }
 
