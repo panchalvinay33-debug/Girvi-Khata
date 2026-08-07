@@ -53,6 +53,7 @@ import com.girvikhata.app.backup.PortableBackupCrypto
 import com.girvikhata.app.backup.PortableMediaSupport
 import com.girvikhata.app.backup.RecoveryKeyStore
 import com.girvikhata.app.backup.SnapshotPortableCodec
+import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
 import com.girvikhata.app.data.EncryptedRecordStore
@@ -71,6 +72,7 @@ class BackupActivity : FragmentActivity() {
     private lateinit var biometricCapability: BiometricCapability
     private lateinit var store: EncryptedRecordStore
     private lateinit var masterStore: EncryptedMasterCatalogStore
+    private lateinit var custodyStore: CustodyPlacementStore
     private lateinit var journal: DataSafetyJournal
     private lateinit var recoveryKeyStore: RecoveryKeyStore
     private lateinit var autoConfig: AutoBackupConfig
@@ -89,6 +91,7 @@ class BackupActivity : FragmentActivity() {
         biometricCapability = BiometricCapability(applicationContext)
         store = EncryptedRecordStore(applicationContext)
         masterStore = EncryptedMasterCatalogStore(applicationContext)
+        custodyStore = CustodyPlacementStore(applicationContext)
         journal = DataSafetyJournal(applicationContext)
         recoveryKeyStore = RecoveryKeyStore(applicationContext)
         autoConfig = AutoBackupConfig(applicationContext)
@@ -153,9 +156,10 @@ class BackupActivity : FragmentActivity() {
             val secret = recoveryKeyStore.reveal().toCharArray()
             val snapshot = store.load()
             val masters = masterStore.load()
+            val custody = custodyStore.load()
             val media = PortableMediaSupport.collect(applicationContext)
             val payload = try {
-                PortableAppBundleCodec.encodePortable(snapshot, masters, media)
+                PortableAppBundleCodec.encodePortable(snapshot, masters, media, custody)
             } finally {
                 PortableMediaSupport.clear(media)
             }
@@ -174,6 +178,7 @@ class BackupActivity : FragmentActivity() {
                     .contentEquals(SnapshotPortableCodec.encode(snapshot)),
             ) { "Business bundle self-check failed" }
             require(decoded.masterCatalog == masters) { "Master bundle self-check failed" }
+            require(decoded.containsPortableCustody && decoded.custodySnapshot == custody) { "Custody bundle self-check failed" }
 
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             pendingBackup?.clearSecret()
@@ -188,8 +193,10 @@ class BackupActivity : FragmentActivity() {
                 ledgerCount = snapshot.girvis.sumOf { it.payments.size },
                 masterCount = masters.entries.size,
                 mediaCount = decoded.portableMedia.size,
+                custodyLocationCount = custody.locations.size,
+                custodyLotCount = custody.lots.size,
             )
-            message = "Location choose karein. New phone recovery-ready .gkb verify hoga."
+            message = "Location choose karein. Business + photos + lockers/lots recovery-ready .gkb verify hoga."
             createDocument.launch(pendingBackup!!.fileName)
         }.onFailure {
             pendingBackup?.clearSecret()
@@ -225,6 +232,9 @@ class BackupActivity : FragmentActivity() {
             require(decoded.snapshot.girvis.size == pending.girviCount) { "Written girvi count mismatch" }
             require(decoded.masterCatalog.entries.size == pending.masterCount) { "Written master count mismatch" }
             require(decoded.mediaCount == pending.mediaCount) { "Written media count mismatch" }
+            require(decoded.containsPortableCustody) { "Written custody section missing" }
+            require(decoded.custodySnapshot.locations.size == pending.custodyLocationCount) { "Written locker count mismatch" }
+            require(decoded.custodySnapshot.lots.size == pending.custodyLotCount) { "Written external lot count mismatch" }
 
             journal.markVerifiedBackup(verification.sha256, pending.customerCount, pending.girviCount, pending.ledgerCount)
             BackupResult(
@@ -233,10 +243,12 @@ class BackupActivity : FragmentActivity() {
                 pending.ledgerCount,
                 pending.masterCount,
                 pending.mediaCount,
+                pending.custodyLocationCount,
+                pending.custodyLotCount,
                 verification.sha256,
             )
         }.onSuccess { result ->
-            message = "Verified portable backup: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • ${result.masters} masters • ${result.media} photos • SHA ${result.sha256.take(12)}…"
+            message = "Verified portable backup: ${result.customers} customers • ${result.girvis} girvi • ${result.ledgerEntries} ledger • ${result.masters} masters • ${result.media} photos • ${result.lockers} lockers • ${result.lots} lots • SHA ${result.sha256.take(12)}…"
         }.onFailure {
             message = "Backup verify nahi hua: ${it.message ?: "unknown error"}"
         }
@@ -286,6 +298,8 @@ class BackupActivity : FragmentActivity() {
         val ledgerCount: Int,
         val masterCount: Int,
         val mediaCount: Int,
+        val custodyLocationCount: Int,
+        val custodyLotCount: Int,
     ) { fun clearSecret() = passphrase.fill('\u0000') }
 
     private companion object { const val MAX_BACKUP_BYTES = 180 * 1024 * 1024 }
@@ -297,6 +311,8 @@ private data class BackupResult(
     val ledgerEntries: Int,
     val masters: Int,
     val media: Int,
+    val lockers: Int,
+    val lots: Int,
     val sha256: String,
 )
 
@@ -399,7 +415,7 @@ private fun BackupCreateScreen(
     BackupPanel("Manual Emergency Backup", message) {
         Icon(Icons.Default.Key, null)
         Text("Recovery Key ID: ${keyFingerprint ?: "not configured"}", fontWeight = FontWeight.Bold)
-        Text("Business records, masters aur photos portable encrypted .gkb mein save honge. Naye phone par same Recovery Key se restore hoga.", color = Color.Gray)
+        Text("Business records, masters, photos, lockers aur external lots portable encrypted .gkb mein save honge. Naye phone par same Recovery Key se restore hoga.", color = Color.Gray)
         if (!keyReady) {
             Text("Pehle Recovery Key ko phone ke bahar safe karke confirm karein.", color = Color(0xFFB3261E), fontWeight = FontWeight.Bold)
             OutlinedButton(onClick = openRecoveryCenter, modifier = Modifier.fillMaxWidth()) { Text("Open Recovery Center") }
