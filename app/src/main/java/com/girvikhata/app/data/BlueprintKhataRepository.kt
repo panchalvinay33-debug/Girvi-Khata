@@ -1,6 +1,7 @@
 package com.girvikhata.app.data
 
 import com.girvikhata.app.GirviKhataApplication
+import com.girvikhata.app.custody.CustodyPlacementSnapshot
 import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.domain.GirviAdvanceMetadata
 import com.girvikhata.app.domain.GirviSequence
@@ -97,13 +98,9 @@ class BlueprintKhataRepository(
 
     private fun validateNoActiveExternalPlacement(girviId: String) {
         val context = GirviKhataApplication.appContextOrNull() ?: return
-        val custody = CustodyPlacementStore(context).load()
-        val blockingLots = custody.lots.filter { lot ->
-            lot.items.any { item -> item.girviId == girviId && item.removedAt == null }
-        }
+        val blockingLots = activeExternalLotNumbers(girviId, CustodyPlacementStore(context).load())
         require(blockingLots.isEmpty()) {
-            val lots = blockingLots.joinToString { it.lotNumber }
-            "Girvi ka item external lot ($lots) me active hai. Release se pehle item ko locker/location me wapas move karein."
+            "Girvi ka item external lot (${blockingLots.joinToString()}) me active hai. Release se pehle item ko locker/location me wapas move karein."
         }
     }
 
@@ -115,3 +112,8 @@ class BlueprintKhataRepository(
     fun setCategoryActive(categoryId: String, active: Boolean): AppSnapshot =
         writer.execute(VerifiedBusinessMutation.SetCategoryActive(categoryId, active))
 }
+
+internal fun activeExternalLotNumbers(girviId: String, custody: CustodyPlacementSnapshot): List<String> =
+    custody.lots.filter { lot ->
+        lot.items.any { item -> item.girviId == girviId && item.removedAt == null }
+    }.map { it.lotNumber }
