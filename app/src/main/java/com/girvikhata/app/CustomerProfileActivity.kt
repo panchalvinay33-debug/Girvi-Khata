@@ -51,7 +51,9 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.data.AppSnapshot
+import com.girvikhata.app.data.BlueprintKhataRepository
 import com.girvikhata.app.data.CustomerPurgeCoordinator
+import com.girvikhata.app.data.CustomerRecord
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.SecureMediaVault
@@ -72,6 +74,7 @@ class CustomerProfileActivity : FragmentActivity() {
             return
         }
         val records = EncryptedRecordStore(applicationContext)
+        val repository = BlueprintKhataRepository(records)
         val custody = CustodyPlacementStore(applicationContext)
         val media = SecureMediaVault(applicationContext)
         val purgeCoordinator = CustomerPurgeCoordinator(records, custody, media)
@@ -95,6 +98,14 @@ class CustomerProfileActivity : FragmentActivity() {
                         requestBiometric = { success, pinFallback, error -> requestOwnerBiometric(success, pinFallback, error) },
                         back = { finish() },
                         newGirvi = { startActivity(Intent(this, PracticalEntryActivity::class.java)) },
+                        saveCustomer = { updated ->
+                            runCatching { repository.upsertCustomer(updated) }
+                                .onSuccess {
+                                    snapshot = it
+                                    runCatching { journal.recordNamedEvent("CUSTOMER_EDITED", "Customer details edited", updated.name.take(80)) }
+                                }
+                                .exceptionOrNull()?.message
+                        },
                         purge = {
                             runCatching { purgeCoordinator.purge(customerId) }
                                 .onSuccess { result ->
@@ -117,11 +128,7 @@ class CustomerProfileActivity : FragmentActivity() {
         }
     }
 
-    private fun requestOwnerBiometric(
-        success: () -> Unit,
-        pinFallback: () -> Unit,
-        error: (String) -> Unit,
-    ) {
+    private fun requestOwnerBiometric(success: () -> Unit, pinFallback: () -> Unit, error: (String) -> Unit) {
         val prompt = BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
@@ -158,6 +165,7 @@ private fun CustomerKhataScreen(
     requestBiometric: (() -> Unit, () -> Unit, (String) -> Unit) -> Unit,
     back: () -> Unit,
     newGirvi: () -> Unit,
+    saveCustomer: (CustomerRecord) -> String?,
     purge: () -> String?,
 ) {
     val customer = snapshot.customers.first { it.id == customerId }
@@ -177,6 +185,7 @@ private fun CustomerKhataScreen(
     val itemCount = girvis.sumOf { it.effectiveItems.size }
 
     var menu by rememberSaveable { mutableStateOf(false) }
+    var edit by rememberSaveable { mutableStateOf(false) }
     var warning by rememberSaveable { mutableStateOf(false) }
     var pinDialog by rememberSaveable { mutableStateOf(false) }
     var finalConfirm by rememberSaveable { mutableStateOf(false) }
@@ -188,10 +197,9 @@ private fun CustomerKhataScreen(
                 title = { Text("Customer Khata", fontWeight = FontWeight.Bold, color = Color.White) },
                 navigationIcon = { TextButton(onClick = back) { Text("← वापस", color = Color.White) } },
                 actions = {
-                    IconButton(onClick = { menu = true }) {
-                        Icon(Icons.Default.MoreVert, "Customer menu", tint = Color.White)
-                    }
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Customer menu", tint = Color.White) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Edit Customer") }, onClick = { menu = false; edit = true; message = null })
                         DropdownMenuItem(
                             text = { Text("Pura Khata Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) },
                             onClick = { menu = false; warning = true; message = null },
@@ -202,10 +210,7 @@ private fun CustomerKhataScreen(
             )
         },
     ) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        Column(Modifier.padding(padding).fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(customer.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -216,12 +221,7 @@ private fun CustomerKhataScreen(
                         Text("Active: ${active.size}", fontWeight = FontWeight.Bold)
                         Text("Closed: $closed")
                     }
-                    Text(
-                        "Total Due: ${profileMoney(totalDue)}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF5146B8),
-                    )
+                    Text("Total Due: ${profileMoney(totalDue)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF5146B8))
                 }
             }
 
@@ -233,9 +233,7 @@ private fun CustomerKhataScreen(
             message?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
             Text("Girvi History (${girvis.size})", fontWeight = FontWeight.Bold)
             if (girvis.isEmpty()) {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("Abhi is customer ka koi Girvi record nahi hai.", Modifier.padding(16.dp))
-                }
+                Card(Modifier.fillMaxWidth()) { Text("Abhi is customer ka koi Girvi record nahi hai.", Modifier.padding(16.dp)) }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(girvis, key = { it.id }) { girvi ->
@@ -243,19 +241,12 @@ private fun CustomerKhataScreen(
                             Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(girvi.girviNumber, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        girvi.status,
-                                        color = if (girvi.status == "ACTIVE") Color(0xFF138A4A) else Color.Gray,
-                                    )
+                                    Text(girvi.status, color = if (girvi.status == "ACTIVE") Color(0xFF138A4A) else Color.Gray)
                                 }
                                 Text(girvi.effectiveItems.joinToString { it.itemName.ifBlank { it.categoryName } })
-                                Text(
-                                    "Principal: ${profileMoney(girvi.principalPaise)} • ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(girvi.createdAt))}",
-                                    color = Color.Gray,
-                                )
+                                Text("Principal: ${profileMoney(girvi.principalPaise)} • ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(girvi.createdAt))}", color = Color.Gray)
                                 if (girvi.status == "ACTIVE") {
-                                    val due = runCatching { BlueprintLedgerEngine.project(girvi, System.currentTimeMillis()).totalDuePaise }
-                                        .getOrDefault(girvi.principalPaise)
+                                    val due = runCatching { BlueprintLedgerEngine.project(girvi, System.currentTimeMillis()).totalDuePaise }.getOrDefault(girvi.principalPaise)
                                     Text("Aaj ka Due: ${profileMoney(due)}", fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -266,6 +257,20 @@ private fun CustomerKhataScreen(
         }
     }
 
+    if (edit) {
+        CustomerEditDialog(
+            customer = customer,
+            dismiss = { edit = false },
+            save = { updated ->
+                val error = saveCustomer(updated)
+                if (error == null) {
+                    edit = false
+                    message = null
+                } else message = "Save nahi hua: $error"
+            },
+        )
+    }
+
     if (warning) {
         AlertDialog(
             onDismissRequest = { warning = false },
@@ -274,28 +279,17 @@ private fun CustomerKhataScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${customer.name} ka current app data delete hoga:")
                     Text("• ${girvis.size} Girvi\n• $itemCount items\n• $paymentCount payment/reversal entries\n• $externalLinks active external item links")
-                    Text(
-                        "Customer aur uski Girvi/payment/custody history current phone se hat jayegi.",
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text("Customer aur uski Girvi/payment/custody history current phone se hat jayegi.", fontWeight = FontWeight.Bold)
                     Text("Purane .gkb backup files automatically delete nahi honge.", color = MaterialTheme.colorScheme.error)
-                    if (externalLinks > 0) {
-                        Text("Shared external finance ledger safe rahega; sirf is customer ke item links hatenge.")
-                    }
+                    if (externalLinks > 0) Text("Shared external finance ledger safe rahega; sirf is customer ke item links hatenge.")
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     warning = false
                     if (biometricAvailable) {
-                        requestBiometric(
-                            { finalConfirm = true },
-                            { pinDialog = true },
-                            { message = it },
-                        )
-                    } else {
-                        pinDialog = true
-                    }
+                        requestBiometric({ finalConfirm = true }, { pinDialog = true }, { message = it })
+                    } else pinDialog = true
                 }) { Text("Owner Verify Karein", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { warning = false }) { Text("Cancel") } },
@@ -303,11 +297,7 @@ private fun CustomerKhataScreen(
     }
 
     if (pinDialog) {
-        OwnerPurgePinDialog(
-            security = security,
-            dismiss = { pinDialog = false },
-            success = { pinDialog = false; finalConfirm = true },
-        )
+        OwnerPurgePinDialog(security = security, dismiss = { pinDialog = false }, success = { pinDialog = false; finalConfirm = true })
     }
 
     if (finalConfirm) {
@@ -320,9 +310,7 @@ private fun CustomerKhataScreen(
                     finalConfirm = false
                     val error = purge()
                     if (error != null) message = "Delete nahi hua: $error"
-                }) {
-                    Text("PERMANENTLY DELETE", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                }
+                }) { Text("PERMANENTLY DELETE", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { finalConfirm = false }) { Text("Nahi") } },
         )
@@ -330,11 +318,39 @@ private fun CustomerKhataScreen(
 }
 
 @Composable
-private fun OwnerPurgePinDialog(
-    security: SecurityPreferences,
-    dismiss: () -> Unit,
-    success: () -> Unit,
-) {
+private fun CustomerEditDialog(customer: CustomerRecord, dismiss: () -> Unit, save: (CustomerRecord) -> Unit) {
+    var name by rememberSaveable(customer.id) { mutableStateOf(customer.name) }
+    var mobile by rememberSaveable(customer.id) { mutableStateOf(customer.mobile) }
+    var address by rememberSaveable(customer.id) { mutableStateOf(customer.address) }
+    var error by rememberSaveable(customer.id) { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Edit Customer") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it.take(80) }, label = { Text("Naam *") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(mobile, { mobile = it.filter(Char::isDigit).take(12) }, label = { Text("Mobile") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
+                OutlinedTextField(address, { address = it.take(180) }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val cleanName = name.trim().replace(Regex("\\s+"), " ")
+                val cleanMobile = normalizeCustomerMobile(mobile)
+                when {
+                    cleanName.isBlank() -> error = "Naam required hai"
+                    cleanMobile.isNotBlank() && cleanMobile.length != 10 -> error = "Mobile 10 digits ka hona chahiye"
+                    else -> save(customer.copy(name = cleanName, mobile = cleanMobile, address = address.trim()))
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun OwnerPurgePinDialog(security: SecurityPreferences, dismiss: () -> Unit, success: () -> Unit) {
     var pin by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("6-digit owner PIN daalein") }
     AlertDialog(
@@ -375,15 +391,18 @@ private fun OwnerPurgePinDialog(
 @Composable
 private fun MissingCustomerScreen(back: () -> Unit) {
     Scaffold(topBar = { TopAppBar(title = { Text("Customer nahi mila") }) }) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
+        Column(Modifier.padding(padding).fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text("Ye customer record ab available nahi hai.")
             OutlinedButton(onClick = back) { Text("Wapas") }
         }
     }
+}
+
+private fun normalizeCustomerMobile(value: String): String {
+    var digits = value.filter(Char::isDigit)
+    if (digits.length == 12 && digits.startsWith("91")) digits = digits.drop(2)
+    if (digits.length == 11 && digits.startsWith("0")) digits = digits.drop(1)
+    return digits
 }
 
 private fun profileMoney(paise: Long): String =
