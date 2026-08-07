@@ -31,8 +31,14 @@ class BlueprintKhataRepository(
     }
 
     @Synchronized
-    fun upsertCustomer(customer: CustomerRecord): AppSnapshot =
-        writer.execute(VerifiedBusinessMutation.UpsertCustomer(customer))
+    fun upsertCustomer(customer: CustomerRecord): AppSnapshot {
+        val latest = records.load()
+        return if (latest.customers.any { it.id == customer.id }) {
+            writer.execute(UpdateCustomerProfileMutation(customer))
+        } else {
+            writer.execute(VerifiedBusinessMutation.UpsertCustomer(customer))
+        }
+    }
 
     @Synchronized
     fun updateCustomerProfile(customer: CustomerRecord): AppSnapshot =
