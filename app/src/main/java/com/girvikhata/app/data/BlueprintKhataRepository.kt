@@ -35,6 +35,10 @@ class BlueprintKhataRepository(
         writer.execute(VerifiedBusinessMutation.UpsertCustomer(customer))
 
     @Synchronized
+    fun updateCustomerProfile(customer: CustomerRecord): AppSnapshot =
+        writer.execute(UpdateCustomerProfileMutation(customer))
+
+    @Synchronized
     fun addAdditionalAdvance(
         girviId: String,
         amountPaise: Long,
