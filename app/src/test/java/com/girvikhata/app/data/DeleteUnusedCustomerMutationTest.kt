@@ -1,7 +1,7 @@
 package com.girvikhata.app.data
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFailsWith
+import org.junit.Assert.fail
 import org.junit.Test
 
 class DeleteUnusedCustomerMutationTest {
@@ -23,14 +23,20 @@ class DeleteUnusedCustomerMutationTest {
             girviNumber = "GK-1",
             customerId = "c1",
             customerName = "Test",
+            categoryName = "Gold",
+            itemName = "Ring",
+            weightGrams = "10",
             principalPaise = 10000,
             monthlyRateBasisPoints = 100,
             createdAt = 1L,
         )
         val snapshot = AppSnapshot(customers = listOf(customer), girvis = listOf(girvi))
 
-        assertFailsWith<IllegalArgumentException> {
+        try {
             DeleteUnusedCustomerMutation("c1").apply(snapshot)
+            fail("Expected customer delete to be blocked")
+        } catch (_: IllegalArgumentException) {
+            // Expected: customer financial history is preserved.
         }
     }
 }
