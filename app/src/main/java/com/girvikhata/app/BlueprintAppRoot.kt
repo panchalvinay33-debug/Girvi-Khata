@@ -65,6 +65,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.girvikhata.app.custody.CustodyDisplayResolver
+import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.BlueprintKhataRepository
 import com.girvikhata.app.data.EncryptedRecordStore
@@ -470,6 +472,10 @@ private fun BlueprintGirviDetail(
     back: () -> Unit,
 ) = BlueprintPage(girvi.girviNumber, back) {
     val context = LocalContext.current
+    val custody = remember(girvi.id) { CustodyPlacementStore(context.applicationContext).load() }
+    val custodySummary = remember(girvi, custody) {
+        CustodyDisplayResolver.girviSummary(custody, girvi.effectiveItems.map { it.id })
+    }
     var settlementAt by rememberSaveable(girvi.id) { mutableStateOf(blueprintStartOfToday().coerceAtLeast(girvi.createdAt)) }
     var showAdvance by rememberSaveable { mutableStateOf(false) }
     var showPayment by rememberSaveable { mutableStateOf(false) }
@@ -484,6 +490,7 @@ private fun BlueprintGirviDetail(
         item {
             BlueprintListCard("Customer", girvi.customerName)
             BlueprintListCard("Status", girvi.status)
+            BlueprintListCard("Current Custody / सामान कहाँ है", custodySummary)
             OutlinedButton(
                 onClick = {
                     blueprintDatePicker(context, settlementAt) { picked ->
@@ -526,9 +533,10 @@ private fun BlueprintGirviDetail(
             Text("सामान / Items", fontWeight = FontWeight.Bold, fontSize = 18.sp)
         }
         items(girvi.effectiveItems, key = { it.id }) { item ->
+            val current = CustodyDisplayResolver.currentItem(custody, item.id)
             BlueprintListCard(
                 "${item.itemName} × ${item.quantity}",
-                "${item.categoryName} • ${item.grossWeightGrams}${if (item.deductionWeightGrams.isBlank()) "" else " - ${item.deductionWeightGrams}"} • ${GirviInterestMetadata.strip(item.description)}",
+                "${item.categoryName} • ${item.grossWeightGrams}${if (item.deductionWeightGrams.isBlank()) "" else " - ${item.deductionWeightGrams}"} • ${GirviInterestMetadata.strip(item.description)} • 📍 ${current.label}",
             )
         }
         item {
@@ -839,8 +847,11 @@ private fun BlueprintMore(lock: () -> Unit) = BlueprintPage("More / Tools") {
     BlueprintToolButton(Icons.Default.Restore, "Verified Restore", "Preview + rollback-safe restore") {
         context.startActivity(Intent(context, RestoreActivity::class.java))
     }
-    BlueprintToolButton(Icons.Default.Calculate, "Reports", "Business reports") {
+    BlueprintToolButton(Icons.Default.Calculate, "Reports", "Business + custody reports") {
         context.startActivity(Intent(context, ReportsActivity::class.java))
+    }
+    BlueprintToolButton(Icons.Default.Inventory2, "Storage & Placement", "Lockers, item movement, external parties and lots") {
+        context.startActivity(Intent(context, CustodyPlacementActivity::class.java))
     }
     BlueprintToolButton(Icons.Default.Settings, "Owner Settings", "Security and owner controls") {
         context.startActivity(Intent(context, OwnerSettingsActivity::class.java))
