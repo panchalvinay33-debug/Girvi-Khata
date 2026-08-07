@@ -23,6 +23,7 @@
         <activity android:name=".RecoveryCenterActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".PracticalEntryGateActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".PracticalEntryActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".CustomerProfileActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".RelationalShadowActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".AdvancedWorkflowActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".MasterWorkflowActivity" android:exported="false" android:screenOrientation="portrait" />
