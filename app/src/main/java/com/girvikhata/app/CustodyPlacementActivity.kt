@@ -8,14 +8,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Inventory2
@@ -48,7 +47,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
@@ -59,6 +57,8 @@ import com.girvikhata.app.custody.StorageLocation
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedRecordStore
+import com.girvikhata.app.domain.ExternalInterestRule
+import com.girvikhata.app.domain.ExternalPlacementLedger
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.DateFormat
@@ -100,10 +100,35 @@ class CustodyPlacementActivity : FragmentActivity() {
                         custody = custodyStore.addParty(name, mobile, address, rateBps, note)
                         journal.recordNamedEvent("EXTERNAL_PARTY_CREATED", "External party created", name.trim())
                     },
-                    createLot = { lotNumber, partyId, refs, openedAt, amount, rateBps, note ->
-                        custody = custodyStore.createLot(lotNumber, partyId, refs, openedAt, amount, rateBps, note)
+                    createLot = { lotNumber, partyId, refs, openedAt, amount, rateBps, rule, note ->
+                        custody = custodyStore.createLot(lotNumber, partyId, refs, openedAt, amount, rateBps, note, rule)
                         val party = custody.parties.firstOrNull { it.id == partyId }?.name ?: "External party"
                         journal.recordNamedEvent("LOT_CREATED", "External placement lot created", "$lotNumber • $party • ${refs.size} items")
+                    },
+                    addItemsToLot = { lotId, refs, at, note ->
+                        custody = custodyStore.addItemsToLot(lotId, refs, at, note)
+                        val lot = custody.lots.first { it.id == lotId }
+                        journal.recordNamedEvent("ITEMS_ADDED_TO_LOT", "Items added to external lot", "${lot.lotNumber} • ${refs.size} items")
+                    },
+                    addExternalAdvance = { lotId, amount, rate, at, rule, note ->
+                        custody = custodyStore.addExternalAdvance(lotId, amount, rate, at, rule, note)
+                        val lot = custody.lots.first { it.id == lotId }
+                        journal.recordNamedEvent("EXTERNAL_ADVANCE", "External funding added", "${lot.lotNumber} • ${money(amount)}")
+                    },
+                    addExternalPayment = { lotId, amount, at, note ->
+                        custody = custodyStore.addExternalPayment(lotId, amount, at, note)
+                        val lot = custody.lots.first { it.id == lotId }
+                        journal.recordNamedEvent("EXTERNAL_PAYMENT", "External party payment", "${lot.lotNumber} • ${money(amount)}")
+                    },
+                    reverseExternalPayment = { lotId, paymentId, at, reason ->
+                        custody = custodyStore.reverseExternalPayment(lotId, paymentId, at, reason)
+                        val lot = custody.lots.first { it.id == lotId }
+                        journal.recordNamedEvent("EXTERNAL_PAYMENT_REVERSED", "External payment reversed", "${lot.lotNumber} • ${reason.trim().take(100)}")
+                    },
+                    closeLot = { lotId, at ->
+                        custody = custodyStore.closeLot(lotId, at)
+                        val lot = custody.lots.first { it.id == lotId }
+                        journal.recordNamedEvent("LOT_CLOSED", "External placement lot closed", lot.lotNumber)
                     },
                     close = ::finish,
                 )
@@ -120,7 +145,6 @@ private data class ItemRow(
     val customerName: String,
     val itemId: String,
     val itemName: String,
-    val description: String,
 )
 
 @Composable
@@ -132,36 +156,42 @@ private fun CustodyPlacementScreen(
     setLocationActive: (String, Boolean) -> Unit,
     moveItem: (String, String, String, Long, String) -> Unit,
     addParty: (String, String, String, Int, String) -> Unit,
-    createLot: (String, String, List<Pair<String, String>>, Long, Long, Int, String) -> Unit,
+    createLot: (String, String, List<Pair<String, String>>, Long, Long, Int, ExternalInterestRule, String) -> Unit,
+    addItemsToLot: (String, List<Pair<String, String>>, Long, String) -> Unit,
+    addExternalAdvance: (String, Long, Int, Long, ExternalInterestRule, String) -> Unit,
+    addExternalPayment: (String, Long, Long, String) -> Unit,
+    reverseExternalPayment: (String, String, Long, String) -> Unit,
+    closeLot: (String, Long) -> Unit,
     close: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(CustodyTab.ITEMS) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val itemRows = remember(business) {
         business.girvis.flatMap { girvi ->
-            girvi.effectiveItems.map { item ->
-                ItemRow(girvi.id, girvi.girviNumber, girvi.customerName, item.id, item.itemName, item.description)
-            }
+            girvi.effectiveItems.map { item -> ItemRow(girvi.id, girvi.girviNumber, girvi.customerName, item.id, item.itemName) }
         }
     }
     Scaffold(
         containerColor = Color(0xFFF6F7FB),
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(selected = tab == CustodyTab.ITEMS, onClick = { tab = CustodyTab.ITEMS }, icon = { Icon(Icons.Default.Inventory2, null) }, label = { Text("Items") })
-                NavigationBarItem(selected = tab == CustodyTab.LOCATIONS, onClick = { tab = CustodyTab.LOCATIONS }, icon = { Icon(Icons.Default.LocationOn, null) }, label = { Text("Lockers") })
-                NavigationBarItem(selected = tab == CustodyTab.EXTERNAL, onClick = { tab = CustodyTab.EXTERNAL }, icon = { Icon(Icons.Default.Store, null) }, label = { Text("External") })
+                NavigationBarItem(tab == CustodyTab.ITEMS, { tab = CustodyTab.ITEMS }, { Icon(Icons.Default.Inventory2, null) }, label = { Text("Items") })
+                NavigationBarItem(tab == CustodyTab.LOCATIONS, { tab = CustodyTab.LOCATIONS }, { Icon(Icons.Default.LocationOn, null) }, label = { Text("Lockers") })
+                NavigationBarItem(tab == CustodyTab.EXTERNAL, { tab = CustodyTab.EXTERNAL }, { Icon(Icons.Default.Store, null) }, label = { Text("External") })
             }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Storage & Placement", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color(0xFF171752))
-            Text("Har girvi item ki physical custody aur external placement history", color = Color.Gray)
+            Text("Item custody + owner-only external placement ledger", color = Color.Gray)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
             when (tab) {
                 CustodyTab.ITEMS -> ItemCustodyTab(itemRows, custody, moveItem) { error = it }
                 CustodyTab.LOCATIONS -> LocationTab(custody.locations, addLocation, setLocationActive) { error = it }
-                CustodyTab.EXTERNAL -> ExternalTab(itemRows, custody, addParty, createLot) { error = it }
+                CustodyTab.EXTERNAL -> ExternalTab(
+                    itemRows, custody, addParty, createLot, addItemsToLot, moveItem,
+                    addExternalAdvance, addExternalPayment, reverseExternalPayment, closeLot,
+                ) { error = it }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = refresh, modifier = Modifier.weight(1f)) { Text("Refresh") }
@@ -191,20 +221,16 @@ private fun ItemCustodyTab(
                     Text("${row.girviNumber} • ${row.customerName}", fontWeight = FontWeight.Bold)
                     Text(row.itemName)
                     Text("Current: $current", color = if (current == "Not assigned") Color(0xFF9A6700) else Color(0xFF138A4A), fontWeight = FontWeight.Bold)
-                    val history = custody.movements.filter { it.itemId == row.itemId }.sortedByDescending { it.movedAt }.take(3)
-                    history.forEach { movement ->
+                    custody.movements.filter { it.itemId == row.itemId }.sortedByDescending { it.movedAt }.take(3).forEach { movement ->
                         Text("${formatDate(movement.movedAt)} • ${movementDestinationText(movement.destinationType, movement.destinationId, movement.lotId, custody)}", color = Color.Gray, fontSize = 11.sp)
                     }
-                    Button(onClick = { moving = row }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.MoveToInbox, null)
-                        Text("  Move / Locker Set Karein")
-                    }
+                    Button(onClick = { moving = row }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.MoveToInbox, null); Text("  Move / Locker Set Karein") }
                 }
             }
         }
     }
     moving?.let { row ->
-        MoveItemDialog(row, custody.locations.filter { it.active }, dismiss = { moving = null }) { locationId, date, note ->
+        MoveItemDialog(row, custody.locations.filter { it.active }, { moving = null }) { locationId, date, note ->
             runCatching { moveItem(row.girviId, row.itemId, locationId, date, note) }
                 .onSuccess { moving = null; error(null) }
                 .onFailure { error(it.message ?: "Item move nahi hua") }
@@ -220,10 +246,7 @@ private fun LocationTab(
     error: (String?) -> Unit,
 ) {
     var add by rememberSaveable { mutableStateOf(false) }
-    Button(onClick = { add = true }, modifier = Modifier.fillMaxWidth()) {
-        Icon(Icons.Default.Add, null)
-        Text("  Locker / Storage Location Add Karein")
-    }
+    Button(onClick = { add = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Text("  Locker / Storage Location Add Karein") }
     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(locations.sortedWith(compareByDescending<StorageLocation> { it.active }.thenBy { it.name.lowercase() }), key = { it.id }) { location ->
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
@@ -232,18 +255,14 @@ private fun LocationTab(
                     Text("${location.type} • ${location.detail.ifBlank { "No detail" }}", color = Color.Gray)
                     Text(if (location.active) "ACTIVE" else "INACTIVE", color = if (location.active) Color(0xFF138A4A) else Color.Gray, fontWeight = FontWeight.Bold)
                     OutlinedButton(onClick = {
-                        runCatching { setActive(location.id, !location.active) }
-                            .onSuccess { error(null) }
-                            .onFailure { error(it.message) }
+                        runCatching { setActive(location.id, !location.active) }.onSuccess { error(null) }.onFailure { error(it.message) }
                     }, modifier = Modifier.fillMaxWidth()) { Text(if (location.active) "Disable" else "Enable") }
                 }
             }
         }
     }
     if (add) AddLocationDialog({ add = false }) { name, type, detail ->
-        runCatching { addLocation(name, type, detail) }
-            .onSuccess { add = false; error(null) }
-            .onFailure { error(it.message ?: "Location save nahi hui") }
+        runCatching { addLocation(name, type, detail) }.onSuccess { add = false; error(null) }.onFailure { error(it.message ?: "Location save nahi hui") }
     }
 }
 
@@ -252,11 +271,18 @@ private fun ExternalTab(
     rows: List<ItemRow>,
     custody: CustodyPlacementSnapshot,
     addParty: (String, String, String, Int, String) -> Unit,
-    createLot: (String, String, List<Pair<String, String>>, Long, Long, Int, String) -> Unit,
+    createLot: (String, String, List<Pair<String, String>>, Long, Long, Int, ExternalInterestRule, String) -> Unit,
+    addItemsToLot: (String, List<Pair<String, String>>, Long, String) -> Unit,
+    moveItem: (String, String, String, Long, String) -> Unit,
+    addExternalAdvance: (String, Long, Int, Long, ExternalInterestRule, String) -> Unit,
+    addExternalPayment: (String, Long, Long, String) -> Unit,
+    reverseExternalPayment: (String, String, Long, String) -> Unit,
+    closeLot: (String, Long) -> Unit,
     error: (String?) -> Unit,
 ) {
     var addPartyDialog by rememberSaveable { mutableStateOf(false) }
     var lotDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedLotId by rememberSaveable { mutableStateOf<String?>(null) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { addPartyDialog = true }, modifier = Modifier.weight(1f)) { Text("+ Party") }
         Button(onClick = { lotDialog = true }, enabled = custody.parties.any { it.active } && rows.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("+ Lot") }
@@ -267,38 +293,160 @@ private fun ExternalTab(
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Column(Modifier.padding(12.dp)) {
                     Text(party.name, fontWeight = FontWeight.Bold)
-                    Text("${party.mobile.ifBlank { "No mobile" }} • Default ${party.defaultMonthlyRateBasisPoints / 100.0}%/month", color = Color.Gray)
+                    Text(party.mobile.ifBlank { "No mobile" }, color = Color.Gray)
+                    Text("Finance defaults hidden", color = Color.Gray, fontSize = 11.sp)
                 }
             }
         }
         item { Text("Placement Lots", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
         items(custody.lots.sortedByDescending { it.openedAt }, key = { "l-${it.id}" }) { lot ->
-            LotCard(lot, custody)
+            LotCard(lot, custody) { selectedLotId = lot.id }
         }
     }
     if (addPartyDialog) AddPartyDialog({ addPartyDialog = false }) { name, mobile, address, rateBps, note ->
-        runCatching { addParty(name, mobile, address, rateBps, note) }
-            .onSuccess { addPartyDialog = false; error(null) }
-            .onFailure { error(it.message ?: "Party save nahi hui") }
+        runCatching { addParty(name, mobile, address, rateBps, note) }.onSuccess { addPartyDialog = false; error(null) }.onFailure { error(it.message ?: "Party save nahi hui") }
     }
-    if (lotDialog) CreateLotDialog(rows, custody, { lotDialog = false }) { number, partyId, refs, openedAt, amount, rateBps, note ->
-        runCatching { createLot(number, partyId, refs, openedAt, amount, rateBps, note) }
-            .onSuccess { lotDialog = false; error(null) }
-            .onFailure { error(it.message ?: "Lot create nahi hua") }
+    if (lotDialog) CreateLotDialog(rows, custody, { lotDialog = false }) { number, partyId, refs, openedAt, amount, rateBps, rule, note ->
+        runCatching { createLot(number, partyId, refs, openedAt, amount, rateBps, rule, note) }.onSuccess { lotDialog = false; error(null) }.onFailure { error(it.message ?: "Lot create nahi hua") }
+    }
+    selectedLotId?.let { id ->
+        custody.lots.firstOrNull { it.id == id }?.let { lot ->
+            LotDetailDialog(
+                lot = lot,
+                rows = rows,
+                custody = custody,
+                dismiss = { selectedLotId = null },
+                addItems = { refs, at, note -> runCatching { addItemsToLot(id, refs, at, note) }.onFailure { error(it.message) } },
+                moveItem = { row, locationId, at, note -> runCatching { moveItem(row.girviId, row.itemId, locationId, at, note) }.onFailure { error(it.message) } },
+                addAdvance = { amount, rate, at, rule, note -> runCatching { addExternalAdvance(id, amount, rate, at, rule, note) }.onFailure { error(it.message) } },
+                addPayment = { amount, at, note -> runCatching { addExternalPayment(id, amount, at, note) }.onFailure { error(it.message) } },
+                reversePayment = { paymentId, at, reason -> runCatching { reverseExternalPayment(id, paymentId, at, reason) }.onFailure { error(it.message) } },
+                closeLot = { at -> runCatching { closeLot(id, at) }.onSuccess { selectedLotId = null }.onFailure { error(it.message) } },
+            )
+        }
     }
 }
 
 @Composable
-private fun LotCard(lot: PlacementLot, custody: CustodyPlacementSnapshot) {
+private fun LotCard(lot: PlacementLot, custody: CustodyPlacementSnapshot, open: () -> Unit) {
     val party = custody.parties.firstOrNull { it.id == lot.partyId }?.name ?: "Unknown party"
     val activeItems = lot.items.count { it.removedAt == null }
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = open), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(lot.lotNumber, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text(party)
             Text("${formatDate(lot.openedAt)} • $activeItems active items", color = Color.Gray)
-            Text("Received ${money(lot.amountReceivedPaise)} • Rate ${lot.monthlyRateBasisPoints / 100.0}%/month", color = Color(0xFF7A4D00), fontWeight = FontWeight.Bold)
+            Text("Owner finance hidden • Tap lot to manage", color = Color(0xFF7A4D00), fontWeight = FontWeight.Bold)
             Text(lot.status, color = if (lot.status == "ACTIVE") Color(0xFF138A4A) else Color.Gray)
+        }
+    }
+}
+
+@Composable
+private fun LotDetailDialog(
+    lot: PlacementLot,
+    rows: List<ItemRow>,
+    custody: CustodyPlacementSnapshot,
+    dismiss: () -> Unit,
+    addItems: (List<Pair<String, String>>, Long, String) -> Unit,
+    moveItem: (ItemRow, String, Long, String) -> Unit,
+    addAdvance: (Long, Int, Long, ExternalInterestRule, String) -> Unit,
+    addPayment: (Long, Long, String) -> Unit,
+    reversePayment: (String, Long, String) -> Unit,
+    closeLot: (Long) -> Unit,
+) {
+    var showFinance by rememberSaveable(lot.id) { mutableStateOf(false) }
+    var addItemsDialog by rememberSaveable(lot.id) { mutableStateOf(false) }
+    var moveRow by remember { mutableStateOf<ItemRow?>(null) }
+    var addAdvanceDialog by rememberSaveable(lot.id) { mutableStateOf(false) }
+    var addPaymentDialog by rememberSaveable(lot.id) { mutableStateOf(false) }
+    var reversePaymentId by rememberSaveable(lot.id) { mutableStateOf<String?>(null) }
+    val party = custody.parties.firstOrNull { it.id == lot.partyId }?.name ?: "Unknown party"
+    val projection = runCatching { ExternalPlacementLedger.project(lot.fundingAdvances, lot.fundingPayments, todayNoon()) }.getOrNull()
+    val activeItemIds = lot.items.filter { it.removedAt == null }.map { it.itemId }.toSet()
+    val activeRows = rows.filter { it.itemId in activeItemIds }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("${lot.lotNumber} • $party") },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { Text("Opened ${formatDate(lot.openedAt)} • ${lot.status}", color = Color.Gray) }
+                item { Text("Active Items (${activeRows.size})", fontWeight = FontWeight.Bold) }
+                items(activeRows, key = { "lot-item-${it.itemId}" }) { row ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(9.dp)) {
+                            Text("${row.girviNumber} • ${row.customerName}", fontWeight = FontWeight.Bold)
+                            Text(row.itemName)
+                            if (lot.status == "ACTIVE") TextButton(onClick = { moveRow = row }) { Text("Return / Move to Locker") }
+                        }
+                    }
+                }
+                if (lot.status == "ACTIVE") item {
+                    OutlinedButton(onClick = { addItemsDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("+ Add Items to Lot") }
+                }
+                item {
+                    Button(onClick = { showFinance = !showFinance }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (showFinance) "Hide Owner Finance" else "Show Owner Finance")
+                    }
+                }
+                if (showFinance) {
+                    item {
+                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("🔐 Owner Finance", fontWeight = FontWeight.Bold)
+                                Text("Total funding: ${money(projection?.totalAdvancedPaise ?: 0L)}")
+                                Text("Principal due: ${money(projection?.principalOutstandingPaise ?: 0L)}")
+                                Text("Interest accrued: ${money(projection?.grossInterestPaise ?: 0L)}")
+                                Text("Interest due: ${money(projection?.interestOutstandingPaise ?: 0L)}")
+                                Text("Total due today: ${money(projection?.totalDuePaise ?: 0L)}", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (lot.status == "ACTIVE") item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(onClick = { addAdvanceDialog = true }, modifier = Modifier.weight(1f)) { Text("+ Funding") }
+                            Button(onClick = { addPaymentDialog = true }, modifier = Modifier.weight(1f), enabled = (projection?.totalDuePaise ?: 0L) > 0L) { Text("Pay Party") }
+                        }
+                    }
+                    item { Text("Funding History", fontWeight = FontWeight.Bold) }
+                    items(lot.fundingAdvances.sortedByDescending { it.createdAt }, key = { "adv-${it.id}" }) { advance ->
+                        Text("${formatDate(advance.createdAt)} • ${money(advance.amountPaise)} • ${advance.monthlyRateBasisPoints / 100.0}% • ${ruleLabel(advance.interestRule)}", fontSize = 12.sp)
+                    }
+                    item { Text("External Payment History", fontWeight = FontWeight.Bold) }
+                    items(lot.fundingPayments.sortedByDescending { it.createdAt }, key = { "pay-${it.id}" }) { payment ->
+                        val reversed = lot.fundingPayments.any { it.isReversal && it.reversedPaymentId == payment.id }
+                        Column {
+                            Text("${formatDate(payment.createdAt)} • ${money(payment.amountPaise)}${if (payment.isReversal) " • REVERSAL" else ""}", fontSize = 12.sp)
+                            if (!payment.isReversal && !reversed && lot.status == "ACTIVE") TextButton(onClick = { reversePaymentId = payment.id }) { Text("Reverse") }
+                            if (reversed) Text("Reversed", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                        }
+                    }
+                }
+                if (lot.status == "ACTIVE" && activeRows.isEmpty() && (projection?.totalDuePaise ?: Long.MAX_VALUE) == 0L) item {
+                    Button(onClick = { closeLot(todayNoon()) }, modifier = Modifier.fillMaxWidth()) { Text("Close Settled Lot") }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
+    )
+
+    if (addItemsDialog) AddItemsToLotDialog(rows, custody, lot, { addItemsDialog = false }) { refs, at, note ->
+        addItems(refs, at, note); addItemsDialog = false
+    }
+    moveRow?.let { row ->
+        MoveItemDialog(row, custody.locations.filter { it.active }, { moveRow = null }) { locationId, at, note ->
+            moveItem(row, locationId, at, note); moveRow = null
+        }
+    }
+    if (addAdvanceDialog) ExternalAdvanceDialog(lot, { addAdvanceDialog = false }) { amount, rate, at, rule, note ->
+        addAdvance(amount, rate, at, rule, note); addAdvanceDialog = false
+    }
+    if (addPaymentDialog && projection != null) ExternalPaymentDialog(projection.totalDuePaise, lot.openedAt, { addPaymentDialog = false }) { amount, at, note ->
+        addPayment(amount, at, note); addPaymentDialog = false
+    }
+    reversePaymentId?.let { paymentId ->
+        ReasonDialog("Reverse External Payment", { reversePaymentId = null }) { at, reason ->
+            reversePayment(paymentId, at, reason); reversePaymentId = null
         }
     }
 }
@@ -308,19 +456,13 @@ private fun AddLocationDialog(dismiss: () -> Unit, save: (String, String, String
     var name by rememberSaveable { mutableStateOf("") }
     var type by rememberSaveable { mutableStateOf("SHOP") }
     var detail by rememberSaveable { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text("Add Storage / Locker") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it.take(80) }, label = { Text("Name *") }, modifier = Modifier.fillMaxWidth())
-                Row { listOf("SHOP", "HOME", "BANK", "OTHER").forEach { option -> TextButton(onClick = { type = option }) { Text(if (type == option) "✓$option" else option) } } }
-                OutlinedTextField(detail, { detail = it.take(200) }, label = { Text("Locker/Box/Address detail") }, modifier = Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = { TextButton(onClick = { save(name, type, detail) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
-    )
+    AlertDialog(onDismissRequest = dismiss, title = { Text("Add Storage / Locker") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(name, { name = it.take(80) }, label = { Text("Name *") }, modifier = Modifier.fillMaxWidth())
+            Row { listOf("SHOP", "HOME", "BANK", "OTHER").forEach { option -> TextButton(onClick = { type = option }) { Text(if (type == option) "✓$option" else option) } } }
+            OutlinedTextField(detail, { detail = it.take(200) }, label = { Text("Locker/Box/Address detail") }, modifier = Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = { save(name, type, detail) }) { Text("Save") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }
 
 @Composable
@@ -329,23 +471,15 @@ private fun MoveItemDialog(row: ItemRow, locations: List<StorageLocation>, dismi
     var locationId by rememberSaveable { mutableStateOf(locations.firstOrNull()?.id.orEmpty()) }
     var date by rememberSaveable { mutableStateOf(todayNoon()) }
     var note by rememberSaveable { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text("Move ${row.itemName}") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${row.girviNumber} • ${row.customerName}", color = Color.Gray)
-                if (locations.isEmpty()) Text("Pehle Locker/Location add karein", color = MaterialTheme.colorScheme.error)
-                locations.forEach { location ->
-                    OutlinedButton(onClick = { locationId = location.id }, modifier = Modifier.fillMaxWidth()) { Text(if (locationId == location.id) "✓ ${location.name}" else location.name) }
-                }
-                OutlinedButton(onClick = { pickDate(context, date) { date = it } }) { Text("Date: ${formatDate(date)}") }
-                OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note / reason") }, modifier = Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = { TextButton(onClick = { if (locationId.isNotBlank()) save(locationId, date, note) }, enabled = locationId.isNotBlank()) { Text("Confirm Move") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
-    )
+    AlertDialog(onDismissRequest = dismiss, title = { Text("Move ${row.itemName}") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${row.girviNumber} • ${row.customerName}", color = Color.Gray)
+            if (locations.isEmpty()) Text("Pehle Locker/Location add karein", color = MaterialTheme.colorScheme.error)
+            locations.forEach { location -> OutlinedButton(onClick = { locationId = location.id }, modifier = Modifier.fillMaxWidth()) { Text(if (locationId == location.id) "✓ ${location.name}" else location.name) } }
+            OutlinedButton(onClick = { pickDate(context, date) { date = it } }) { Text("Date: ${formatDate(date)}") }
+            OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note / reason") }, modifier = Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = { if (locationId.isNotBlank()) save(locationId, date, note) }, enabled = locationId.isNotBlank()) { Text("Confirm Move") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }
 
 @Composable
@@ -355,75 +489,137 @@ private fun AddPartyDialog(dismiss: () -> Unit, save: (String, String, String, I
     var address by rememberSaveable { mutableStateOf("") }
     var rate by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text("External Party Add Karein") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it.take(80) }, label = { Text("Party name *") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(mobile, { mobile = it.filter(Char::isDigit).take(12) }, label = { Text("Mobile") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(address, { address = it.take(200) }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(rate, { rate = decimalInput(it) }, label = { Text("Default monthly interest %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note") }, modifier = Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = { TextButton(onClick = { save(name, mobile, address, percentToBps(rate), note) }) { Text("Save Party") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
-    )
+    AlertDialog(onDismissRequest = dismiss, title = { Text("External Party Add Karein") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(name, { name = it.take(80) }, label = { Text("Party name *") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(mobile, { mobile = it.filter(Char::isDigit).take(12) }, label = { Text("Mobile") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(address, { address = it.take(200) }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(rate, { rate = decimalInput(it) }, label = { Text("Default monthly interest %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note") }, modifier = Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = { save(name, mobile, address, percentToBps(rate), note) }) { Text("Save Party") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }
 
 @Composable
 private fun CreateLotDialog(
-    rows: List<ItemRow>,
-    custody: CustodyPlacementSnapshot,
-    dismiss: () -> Unit,
-    save: (String, String, List<Pair<String, String>>, Long, Long, Int, String) -> Unit,
+    rows: List<ItemRow>, custody: CustodyPlacementSnapshot, dismiss: () -> Unit,
+    save: (String, String, List<Pair<String, String>>, Long, Long, Int, ExternalInterestRule, String) -> Unit,
 ) {
     val context = LocalContext.current
     val activeParties = custody.parties.filter { it.active }
-    val externallyActive = custody.lots.flatMap { lot -> lot.items.filter { it.removedAt == null }.map { it.itemId } }.toSet()
+    val externallyActive = custody.lots.flatMap { it.items.filter { item -> item.removedAt == null }.map { item -> item.itemId } }.toSet()
     val selectable = rows.filter { it.itemId !in externallyActive }
+    val firstParty = activeParties.firstOrNull()
     var number by rememberSaveable { mutableStateOf("LOT-${System.currentTimeMillis().toString().takeLast(6)}") }
-    var partyId by rememberSaveable { mutableStateOf(activeParties.firstOrNull()?.id.orEmpty()) }
+    var partyId by rememberSaveable { mutableStateOf(firstParty?.id.orEmpty()) }
     var date by rememberSaveable { mutableStateOf(todayNoon()) }
     var amount by rememberSaveable { mutableStateOf("") }
-    var rate by rememberSaveable { mutableStateOf("") }
+    var rate by rememberSaveable { mutableStateOf(firstParty?.let { (it.defaultMonthlyRateBasisPoints / 100.0).toString() }.orEmpty()) }
+    var ruleName by rememberSaveable { mutableStateOf(ExternalInterestRule.EXACT_DAYS.name) }
     var note by rememberSaveable { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<String>()) }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text("Create External Lot") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { OutlinedTextField(number, { number = it.take(40) }, label = { Text("Lot number") }, modifier = Modifier.fillMaxWidth()) }
-                item { Text("Party", fontWeight = FontWeight.Bold) }
-                items(activeParties, key = { "party-${it.id}" }) { party ->
-                    OutlinedButton(onClick = { partyId = party.id; if (rate.isBlank()) rate = (party.defaultMonthlyRateBasisPoints / 100.0).toString() }, modifier = Modifier.fillMaxWidth()) { Text(if (partyId == party.id) "✓ ${party.name}" else party.name) }
-                }
-                item { OutlinedButton(onClick = { pickDate(context, date) { date = it } }) { Text("Placement date: ${formatDate(date)}") } }
-                item { OutlinedTextField(amount, { amount = decimalInput(it) }, label = { Text("Amount received ₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
-                item { OutlinedTextField(rate, { rate = decimalInput(it) }, label = { Text("External monthly interest %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
-                item { Text("Items select karein (${selected.size})", fontWeight = FontWeight.Bold) }
-                items(selectable, key = { "item-${it.itemId}" }) { row ->
-                    Row(Modifier.fillMaxWidth().clickable { selected = if (row.itemId in selected) selected - row.itemId else selected + row.itemId }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = row.itemId in selected, onCheckedChange = { checked -> selected = if (checked) selected + row.itemId else selected - row.itemId })
-                        Column { Text("${row.girviNumber} • ${row.customerName}", fontWeight = FontWeight.Bold); Text(row.itemName, color = Color.Gray) }
-                    }
-                }
-                item { OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note") }, modifier = Modifier.fillMaxWidth()) }
+    AlertDialog(onDismissRequest = dismiss, title = { Text("Create External Lot") }, text = {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { OutlinedTextField(number, { number = it.take(40) }, label = { Text("Lot number") }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("Party", fontWeight = FontWeight.Bold) }
+            items(activeParties, key = { "party-${it.id}" }) { party ->
+                OutlinedButton(onClick = { partyId = party.id; rate = (party.defaultMonthlyRateBasisPoints / 100.0).toString() }, modifier = Modifier.fillMaxWidth()) { Text(if (partyId == party.id) "✓ ${party.name}" else party.name) }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val refs = selectable.filter { it.itemId in selected }.map { it.girviId to it.itemId }
-                    save(number, partyId, refs, date, rupeesToPaiseAllowZero(amount), percentToBps(rate), note)
-                },
-                enabled = partyId.isNotBlank() && selected.isNotEmpty(),
-            ) { Text("Create Lot") }
-        },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
-    )
+            item { OutlinedButton(onClick = { pickDate(context, date) { date = it } }) { Text("Placement date: ${formatDate(date)}") } }
+            item { OutlinedTextField(amount, { amount = decimalInput(it) }, label = { Text("Amount received ₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(rate, { rate = decimalInput(it) }, label = { Text("External monthly interest %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()) }
+            item { InterestRuleChooser(ruleName) { ruleName = it.name } }
+            item { Text("Items select karein (${selected.size})", fontWeight = FontWeight.Bold) }
+            items(selectable, key = { "item-${it.itemId}" }) { row -> SelectableItemRow(row, row.itemId in selected) { checked -> selected = if (checked) selected + row.itemId else selected - row.itemId } }
+            item { OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note") }, modifier = Modifier.fillMaxWidth()) }
+        }
+    }, confirmButton = {
+        TextButton(onClick = {
+            val refs = selectable.filter { it.itemId in selected }.map { it.girviId to it.itemId }
+            save(number, partyId, refs, date, rupeesToPaiseAllowZero(amount), percentToBps(rate), ExternalInterestRule.valueOf(ruleName), note)
+        }, enabled = partyId.isNotBlank() && selected.isNotEmpty()) { Text("Create Lot") }
+    }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun AddItemsToLotDialog(rows: List<ItemRow>, custody: CustodyPlacementSnapshot, lot: PlacementLot, dismiss: () -> Unit, save: (List<Pair<String, String>>, Long, String) -> Unit) {
+    val context = LocalContext.current
+    val externallyActive = custody.lots.flatMap { it.items.filter { item -> item.removedAt == null }.map { item -> item.itemId } }.toSet()
+    val selectable = rows.filter { it.itemId !in externallyActive }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var date by rememberSaveable { mutableStateOf(todayNoon().coerceAtLeast(lot.openedAt)) }
+    var note by rememberSaveable { mutableStateOf("") }
+    AlertDialog(onDismissRequest = dismiss, title = { Text("Add Items • ${lot.lotNumber}") }, text = {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            item { OutlinedButton(onClick = { pickDate(context, date) { if (it >= lot.openedAt) date = it } }) { Text("Date: ${formatDate(date)}") } }
+            items(selectable, key = { "add-${it.itemId}" }) { row -> SelectableItemRow(row, row.itemId in selected) { checked -> selected = if (checked) selected + row.itemId else selected - row.itemId } }
+            item { OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note") }, modifier = Modifier.fillMaxWidth()) }
+        }
+    }, confirmButton = { TextButton(onClick = { save(selectable.filter { it.itemId in selected }.map { it.girviId to it.itemId }, date, note) }, enabled = selected.isNotEmpty()) { Text("Add") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun ExternalAdvanceDialog(lot: PlacementLot, dismiss: () -> Unit, save: (Long, Int, Long, ExternalInterestRule, String) -> Unit) {
+    val context = LocalContext.current
+    var amount by rememberSaveable { mutableStateOf("") }
+    var rate by rememberSaveable { mutableStateOf((lot.monthlyRateBasisPoints / 100.0).toString()) }
+    var date by rememberSaveable { mutableStateOf(todayNoon().coerceAtLeast(lot.openedAt)) }
+    var ruleName by rememberSaveable { mutableStateOf(ExternalInterestRule.EXACT_DAYS.name) }
+    var note by rememberSaveable { mutableStateOf("") }
+    AlertDialog(onDismissRequest = dismiss, title = { Text("Additional External Funding") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            OutlinedTextField(amount, { amount = decimalInput(it) }, label = { Text("Amount ₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(rate, { rate = decimalInput(it) }, label = { Text("Monthly %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            InterestRuleChooser(ruleName) { ruleName = it.name }
+            OutlinedButton(onClick = { pickDate(context, date) { if (it >= lot.openedAt) date = it } }) { Text("Date: ${formatDate(date)}") }
+            OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note") }, modifier = Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = { save(rupeesToPaisePositive(amount), percentToBps(rate), date, ExternalInterestRule.valueOf(ruleName), note) }) { Text("Save") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun ExternalPaymentDialog(totalDuePaise: Long, openedAt: Long, dismiss: () -> Unit, save: (Long, Long, String) -> Unit) {
+    val context = LocalContext.current
+    var amount by rememberSaveable { mutableStateOf("") }
+    var date by rememberSaveable { mutableStateOf(todayNoon().coerceAtLeast(openedAt)) }
+    var note by rememberSaveable { mutableStateOf("") }
+    AlertDialog(onDismissRequest = dismiss, title = { Text("Pay External Party") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("Current due: ${money(totalDuePaise)}", fontWeight = FontWeight.Bold)
+            OutlinedTextField(amount, { amount = decimalInput(it) }, label = { Text("Payment ₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            OutlinedButton(onClick = { pickDate(context, date) { if (it >= openedAt) date = it } }) { Text("Date: ${formatDate(date)}") }
+            OutlinedTextField(note, { note = it.take(250) }, label = { Text("Note / reference") }, modifier = Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = { save(rupeesToPaisePositive(amount), date, note) }) { Text("Save Payment") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun ReasonDialog(title: String, dismiss: () -> Unit, save: (Long, String) -> Unit) {
+    val context = LocalContext.current
+    var reason by rememberSaveable { mutableStateOf("") }
+    var date by rememberSaveable { mutableStateOf(todayNoon()) }
+    AlertDialog(onDismissRequest = dismiss, title = { Text(title) }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            OutlinedButton(onClick = { pickDate(context, date) { date = it } }) { Text("Date: ${formatDate(date)}") }
+            OutlinedTextField(reason, { reason = it.take(220) }, label = { Text("Reason *") }, modifier = Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = { save(date, reason) }, enabled = reason.trim().length >= 3) { Text("Confirm") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun InterestRuleChooser(selectedName: String, changed: (ExternalInterestRule) -> Unit) {
+    Column {
+        Text("Interest rule", fontWeight = FontWeight.Bold)
+        ExternalInterestRule.entries.forEach { rule -> TextButton(onClick = { changed(rule) }) { Text(if (selectedName == rule.name) "✓ ${ruleLabel(rule)}" else ruleLabel(rule)) } }
+    }
+}
+
+@Composable
+private fun SelectableItemRow(row: ItemRow, checked: Boolean, changed: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable { changed(!checked) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = changed)
+        Column { Text("${row.girviNumber} • ${row.customerName}", fontWeight = FontWeight.Bold); Text(row.itemName, color = Color.Gray) }
+    }
 }
 
 private fun currentCustodyText(itemId: String, snapshot: CustodyPlacementSnapshot): String {
@@ -443,14 +639,15 @@ private fun movementDestinationText(type: String, destinationId: String, lotId: 
 
 private fun formatDate(value: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(value))
 private fun money(paise: Long): String = "₹" + BigDecimal.valueOf(paise, 2).setScale(2).toPlainString()
+private fun ruleLabel(rule: ExternalInterestRule): String = when (rule) {
+    ExternalInterestRule.EXACT_DAYS -> "Exact days"
+    ExternalInterestRule.STARTED_MONTH_FULL -> "Started month = full"
+    ExternalInterestRule.COMPLETED_MONTHS_PLUS_DAYS -> "Months + remaining days"
+}
 
 private fun decimalInput(value: String): String {
     var dot = false
-    return buildString {
-        value.forEach { char ->
-            if (char.isDigit()) append(char) else if (char == '.' && !dot) { append(char); dot = true }
-        }
-    }.take(14)
+    return buildString { value.forEach { char -> if (char.isDigit()) append(char) else if (char == '.' && !dot) { append(char); dot = true } } }.take(14)
 }
 
 private fun percentToBps(value: String): Int {
@@ -465,13 +662,17 @@ private fun rupeesToPaiseAllowZero(value: String): Long {
     return decimal.multiply(BigDecimal(100)).setScale(0, RoundingMode.HALF_UP).longValueExact()
 }
 
+private fun rupeesToPaisePositive(value: String): Long {
+    val result = rupeesToPaiseAllowZero(value)
+    require(result > 0L) { "Positive amount required" }
+    return result
+}
+
 private fun todayNoon(): Long = Calendar.getInstance().apply {
     set(Calendar.HOUR_OF_DAY, 12); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
 }.timeInMillis
 
 private fun pickDate(context: android.content.Context, current: Long, selected: (Long) -> Unit) {
     val cal = Calendar.getInstance().apply { timeInMillis = current }
-    DatePickerDialog(context, { _, year, month, day ->
-        selected(Calendar.getInstance().apply { clear(); set(year, month, day, 12, 0, 0) }.timeInMillis)
-    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+    DatePickerDialog(context, { _, year, month, day -> selected(Calendar.getInstance().apply { clear(); set(year, month, day, 12, 0, 0) }.timeInMillis) }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
 }
