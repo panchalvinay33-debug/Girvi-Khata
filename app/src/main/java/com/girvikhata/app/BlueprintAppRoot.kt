@@ -2,6 +2,7 @@ package com.girvikhata.app
 
 import android.app.DatePickerDialog
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -204,6 +205,10 @@ private fun BlueprintMainShell(snapshot: AppSnapshot, repository: BlueprintKhata
     var selectedGirviId by rememberSaveable { mutableStateOf<String?>(null) }
     val launchEntry = { context.startActivity(Intent(context, PracticalEntryActivity::class.java)) }
 
+    BackHandler(enabled = selectedGirviId != null || tab != BlueprintTab.HOME) {
+        if (selectedGirviId != null) selectedGirviId = null else tab = BlueprintTab.HOME
+    }
+
     selectedGirviId?.let { id ->
         val girvi = snapshot.girvis.firstOrNull { it.id == id }
         if (girvi != null) {
@@ -224,7 +229,7 @@ private fun BlueprintMainShell(snapshot: AppSnapshot, repository: BlueprintKhata
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
                 BlueprintTab.HOME -> BlueprintDashboard(snapshot, launchEntry, { tab = BlueprintTab.CUSTOMERS }) { selectedGirviId = it }
-                BlueprintTab.CUSTOMERS -> BlueprintCustomers(snapshot) { selectedGirviId = it }
+                BlueprintTab.CUSTOMERS -> CustomerListPanel(snapshot, repository, updateSnapshot) { selectedGirviId = it }
                 BlueprintTab.GIRVI -> BlueprintGirviList(snapshot, launchEntry) { selectedGirviId = it }
                 BlueprintTab.MORE -> BlueprintMore(lock)
             }
