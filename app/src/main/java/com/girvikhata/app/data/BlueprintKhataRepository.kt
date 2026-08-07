@@ -35,10 +35,6 @@ class BlueprintKhataRepository(
         writer.execute(VerifiedBusinessMutation.UpsertCustomer(customer))
 
     @Synchronized
-    fun deleteCustomer(customerId: String): AppSnapshot =
-        writer.execute(DeleteUnusedCustomerMutation(customerId))
-
-    @Synchronized
     fun addAdditionalAdvance(
         girviId: String,
         amountPaise: Long,
