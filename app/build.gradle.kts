@@ -11,8 +11,8 @@ android {
         applicationId = "com.girvikhata.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.29.0"
+        versionCode = 36
+        versionName = "0.29.1"
         manifestPlaceholders["appLabel"] = "Girvi Khata"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
