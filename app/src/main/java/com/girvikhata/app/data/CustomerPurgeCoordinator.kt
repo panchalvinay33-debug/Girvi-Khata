@@ -24,8 +24,7 @@ class CustomerPurgeCoordinator(
     fun purge(customerId: String): CustomerPurgeResult {
         val beforeBusiness = records.load()
         val beforeCustody = custody.load()
-        val customer = beforeBusiness.customers.firstOrNull { it.id == customerId }
-            ?: error("Customer nahi mila")
+        require(beforeBusiness.customers.any { it.id == customerId }) { "Customer nahi mila" }
         val girvis = beforeBusiness.girvis.filter { it.customerId == customerId }
         val girviIds = girvis.map { it.id }.toSet()
         val itemIds = girvis.flatMap { it.effectiveItems }.map { it.id }.toSet()
@@ -59,7 +58,7 @@ class CustomerPurgeCoordinator(
         val movementsRemoved = beforeCustody.movements.count { it.girviId in girviIds }
         val placementItemsRemoved = beforeCustody.lots.sumOf { lot -> lot.items.count { it.girviId in girviIds } }
         return CustomerPurgeResult(
-            customerName = customer.name,
+            customerName = "Deleted customer",
             girviCount = girvis.size,
             itemCount = itemIds.size,
             paymentCount = girvis.sumOf { it.payments.size },
