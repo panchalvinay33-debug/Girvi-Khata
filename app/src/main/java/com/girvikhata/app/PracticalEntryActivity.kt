@@ -64,9 +64,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.custody.CustodyPlacementStore
+import com.girvikhata.app.custody.StorageLocation
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.BlueprintKhataRepository
 import com.girvikhata.app.data.CustomerRecord
+import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.GirviItemRecord
 import com.girvikhata.app.data.GirviRecord
@@ -93,38 +96,61 @@ class PracticalEntryActivity : FragmentActivity() {
         val records = EncryptedRecordStore(applicationContext)
         val repository = BlueprintKhataRepository(records)
         val mediaVault = SecureMediaVault(applicationContext).also { it.cleanupTemps() }
+        val custodyStore = CustodyPlacementStore(applicationContext)
+        val journal = DataSafetyJournal(applicationContext)
         setContent {
             MaterialTheme {
                 var snapshot by remember { mutableStateOf(repository.snapshot()) }
+                val storageLocations = remember { custodyStore.load().locations.filter { it.active } }
                 BlueprintEntryScreen(
                     snapshot = snapshot,
+                    storageLocations = storageLocations,
                     mediaVault = mediaVault,
                     onBack = ::finish,
-                    onSave = { customer, girvi, customerPhoto, itemPhotos ->
+                    onSave = { customer, girvi, customerPhoto, itemPhotos, storageLocationId ->
                         runCatching {
-                            // Business data is authoritative and must never be blocked by an optional photo.
+                            // Business data is authoritative and must never be blocked by optional media/custody metadata.
                             val saved = repository.createGirvi(customer, girvi)
                             check(saved.girvis.any { it.id == girvi.id }) { "Saved girvi verification failed" }
                             check(saved.customers.any { it.id == customer.id }) { "Saved customer verification failed" }
                             snapshot = saved
 
-                            val mediaWarnings = mutableListOf<String>()
+                            val warnings = mutableListOf<String>()
                             if (customerPhoto.isNotBlank()) {
                                 runCatching {
                                     mediaVault.importPhoto(File(customerPhoto), "customer-${customer.id}")
-                                }.onFailure { mediaWarnings += "customer photo" }
+                                }.onFailure { warnings += "customer photo" }
                             }
                             itemPhotos.forEach { (itemId, path) ->
                                 if (path.isNotBlank()) {
                                     runCatching {
                                         mediaVault.importPhoto(File(path), "item-$itemId")
-                                    }.onFailure { mediaWarnings += "item photo" }
+                                    }.onFailure { warnings += "item photo" }
                                 }
                             }
-                            if (mediaWarnings.isNotEmpty()) {
+                            if (!storageLocationId.isNullOrBlank()) {
+                                runCatching {
+                                    custodyStore.moveItemsToLocation(
+                                        itemRefs = girvi.effectiveItems.map { girvi.id to it.id },
+                                        locationId = storageLocationId,
+                                        movedAt = girvi.createdAt,
+                                        note = "Assigned during new Girvi entry",
+                                    )
+                                }.onSuccess {
+                                    val location = custodyStore.load().locations.firstOrNull { it.id == storageLocationId }?.name ?: "Storage location"
+                                    runCatching {
+                                        journal.recordNamedEvent(
+                                            "GIRVI_STORAGE_ASSIGNED",
+                                            "Girvi storage assigned",
+                                            "${girvi.girviNumber} • ${girvi.effectiveItems.size} items → $location",
+                                        )
+                                    }
+                                }.onFailure { warnings += "locker assignment" }
+                            }
+                            if (warnings.isNotEmpty()) {
                                 Toast.makeText(
                                     this@PracticalEntryActivity,
-                                    "Girvi saved. ${mediaWarnings.distinct().joinToString()} secure save नहीं हुई; data safe है.",
+                                    "Girvi saved. ${warnings.distinct().joinToString()} save नहीं हुई; financial data safe है.",
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
@@ -163,9 +189,10 @@ private enum class EntryPhotoTarget { CUSTOMER, ITEM }
 @Composable
 private fun BlueprintEntryScreen(
     snapshot: AppSnapshot,
+    storageLocations: List<StorageLocation>,
     mediaVault: SecureMediaVault,
     onBack: () -> Unit,
-    onSave: (CustomerRecord, GirviRecord, String, Map<String, String>) -> String?,
+    onSave: (CustomerRecord, GirviRecord, String, Map<String, String>, String?) -> String?,
 ) {
     val context = LocalContext.current
     var customerName by rememberSaveable { mutableStateOf("") }
@@ -181,6 +208,7 @@ private fun BlueprintEntryScreen(
     var periodRuleName by rememberSaveable { mutableStateOf(InterestPeriodRule.COMPLETED_MONTHS_PLUS_DAYS.name) }
     var compoundEnabled by rememberSaveable { mutableStateOf(false) }
     var compoundMonths by rememberSaveable { mutableStateOf(1) }
+    var selectedStorageLocationId by rememberSaveable { mutableStateOf<String?>(null) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var showReview by rememberSaveable { mutableStateOf(false) }
     var pendingTarget by remember { mutableStateOf<EntryPhotoTarget?>(null) }
@@ -319,6 +347,27 @@ private fun BlueprintEntryScreen(
             }
 
             item {
+                SectionCard("लॉकर / Storage Location") {
+                    Text("सभी items के लिए अभी एक location चुनें; बाद में item-wise shift कर सकते हैं.")
+                    OutlinedButton(
+                        onClick = { selectedStorageLocationId = null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (selectedStorageLocationId == null) "✓ बाद में सेट करें / Assign Later" else "बाद में सेट करें / Assign Later") }
+                    storageLocations.forEach { location ->
+                        OutlinedButton(
+                            onClick = { selectedStorageLocationId = location.id },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (selectedStorageLocationId == location.id) "✓ ${location.name}" else location.name)
+                        }
+                    }
+                    if (storageLocations.isEmpty()) {
+                        Text("अभी कोई locker/location नहीं है. More → Masters → Storage/Locker में list बना सकते हैं.", color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+
+            item {
                 SectionCard("ब्याज नियम / Interest Rule") {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         InterestMode.entries.forEach { mode ->
@@ -422,6 +471,7 @@ private fun BlueprintEntryScreen(
     if (showReview) {
         val terms = requireNotNull(buildInterestTerms(interestModeName, monthlyRate, flatMonthly, periodRuleName, compoundEnabled, compoundMonths))
         val principalPaise = requireNotNull(rupeesToPaise(amount))
+        val selectedStorageName = storageLocations.firstOrNull { it.id == selectedStorageLocationId }?.name
         AlertDialog(
             onDismissRequest = { showReview = false },
             title = { Text("एंट्री जाँचें / Review Entry") },
@@ -435,6 +485,7 @@ private fun BlueprintEntryScreen(
                         Text("मोबाइल: ${mobile.ifBlank { "—" }}")
                         Text("तारीख: ${DateFormat.getDateInstance().format(Date(pledgeDate))}")
                         Text("मूलधन: ${money(principalPaise)}")
+                        Text("Locker: ${selectedStorageName ?: "Assign later"}")
                         Text("Interest: ${modeLabel(terms.mode)} • ${periodLabel(terms.periodRule)}")
                         Text("Monthly: ${money(InterestEngine.monthlyChargePaise(principalPaise, terms))}")
                         if (terms.compoundEveryMonths != null) Text("Compound every ${terms.compoundEveryMonths} month(s)")
@@ -503,7 +554,7 @@ private fun BlueprintEntryScreen(
                             items = itemRecords,
                         )
                         val itemPhotos = items.associate { it.id to it.photoPath }
-                        onSave(customer, girvi, customerPhotoPath, itemPhotos)
+                        onSave(customer, girvi, customerPhotoPath, itemPhotos, selectedStorageLocationId)
                     }.fold(
                         onSuccess = { it },
                         onFailure = { "SAVE-BUILD: ${it.message ?: it::class.java.simpleName}" },
