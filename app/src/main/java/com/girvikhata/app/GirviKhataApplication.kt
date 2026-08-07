@@ -2,6 +2,7 @@ package com.girvikhata.app
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
 import android.os.Bundle
 import android.view.WindowManager
 import com.girvikhata.app.backup.AutoBackupConfig
@@ -20,6 +21,7 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         registerActivityLifecycleCallbacks(this)
 
         reconcile("RESTORE_RECONCILE_FAILED", "Restore startup reconciliation failed") {
@@ -55,6 +57,7 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
     override fun onTerminate() {
         if (::commitObserver.isInitialized) commitObserver.stop()
         if (::mediaObserver.isInitialized) mediaObserver.stop()
+        instance = null
         super.onTerminate()
     }
 
@@ -72,4 +75,12 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
     override fun onActivityDestroyed(activity: Activity) = Unit
+
+    companion object {
+        @Volatile
+        private var instance: GirviKhataApplication? = null
+
+        /** Available for cross-store integrity checks that must fail closed in the real app process. */
+        fun appContextOrNull(): Context? = instance?.applicationContext
+    }
 }
