@@ -90,10 +90,13 @@ internal fun purgeCustomerCustody(
     girviIds: Set<String>,
 ): CustodyPlacementSnapshot {
     if (girviIds.isEmpty()) return snapshot
+    val sanitizedLots = snapshot.lots.map { lot ->
+        lot.copy(items = lot.items.filterNot { it.girviId in girviIds })
+    }.filter { lot ->
+        lot.items.isNotEmpty() || lot.amountReceivedPaise > 0L || lot.fundingAdvances.isNotEmpty() || lot.fundingPayments.isNotEmpty()
+    }
     return snapshot.copy(
         movements = snapshot.movements.filterNot { it.girviId in girviIds },
-        lots = snapshot.lots.map { lot ->
-            lot.copy(items = lot.items.filterNot { it.girviId in girviIds })
-        },
+        lots = sanitizedLots,
     )
 }
