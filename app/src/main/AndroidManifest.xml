@@ -27,6 +27,7 @@
         <activity android:name=".AdvancedWorkflowActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".MasterWorkflowActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".MasterCatalogActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".CustodyPlacementActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".SettlementCenterActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".OwnerSettingsActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".DataSafetyActivity" android:exported="false" android:screenOrientation="portrait" />
