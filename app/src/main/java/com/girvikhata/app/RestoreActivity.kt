@@ -56,6 +56,8 @@ import com.girvikhata.app.backup.PortableMediaSupport
 import com.girvikhata.app.backup.RecoveryKeyStore
 import com.girvikhata.app.backup.SnapshotInspection
 import com.girvikhata.app.backup.SnapshotPortableCodec
+import com.girvikhata.app.custody.CustodyPlacementSnapshot
+import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.BlueprintRestoreCoordinator
 import com.girvikhata.app.data.EncryptedMasterCatalogStore
@@ -82,6 +84,7 @@ class RestoreActivity : FragmentActivity() {
         biometricCapability = BiometricCapability(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
         val masterStore = EncryptedMasterCatalogStore(applicationContext)
+        val custodyStore = CustodyPlacementStore(applicationContext)
         val freshDevice = !security.hasPin() && runCatching {
             val snapshot = store.load()
             snapshot.customers.isEmpty() && snapshot.girvis.isEmpty()
@@ -112,6 +115,8 @@ class RestoreActivity : FragmentActivity() {
                             containsPortableMasters = bundle.containsPortableMasters,
                             encryptedMedia = bundle.encryptedMedia,
                             portableMedia = bundle.portableMedia,
+                            custodySnapshot = bundle.custodySnapshot,
+                            containsPortableCustody = bundle.containsPortableCustody,
                             inspection = SnapshotPortableCodec.inspect(SnapshotPortableCodec.encode(bundle.snapshot)),
                             sha256 = decrypted.payloadSha256,
                             createdAt = decrypted.createdAt,
@@ -123,6 +128,7 @@ class RestoreActivity : FragmentActivity() {
                             is RecordStoreLoadState.Ready -> createSafetyBackup(
                                 current.snapshot,
                                 masterStore.load(),
+                                custodyStore.load(),
                                 phrase,
                             )
                             is RecordStoreLoadState.Corrupt -> quarantineDamagedPrimary()
@@ -140,6 +146,8 @@ class RestoreActivity : FragmentActivity() {
                             containsPortableMasters = preview.containsPortableMasters,
                             targetMedia = preview.encryptedMedia,
                             targetPortableMedia = preview.portableMedia,
+                            targetCustody = preview.custodySnapshot,
+                            containsPortableCustody = preview.containsPortableCustody,
                         )
                         val reloaded = store.load()
                         require(reloaded.customers.size == preview.inspection.customerCount) { "Restore customer verification failed" }
@@ -153,6 +161,7 @@ class RestoreActivity : FragmentActivity() {
                             require(MediaBackupSupport.collect(filesDir).size == preview.encryptedMedia.size) { "Restore media count verification failed" }
                         }
                         if (preview.containsPortableMasters) require(masterStore.load() == preview.masterCatalog) { "Restore masters verification failed" }
+                        if (preview.containsPortableCustody) require(custodyStore.load() == preview.custodySnapshot) { "Restore custody verification failed" }
 
                         if (RecoveryKeyStore.isValid(phrase)) {
                             RecoveryKeyStore(applicationContext).importAndStore(phrase)
@@ -198,10 +207,19 @@ class RestoreActivity : FragmentActivity() {
     }
 
     private fun ensureRestoreStorage(preview: RestorePreview) {
-        val estimatedPayload = if (preview.portableMedia.isNotEmpty()) {
-            PortableAppBundleCodec.encodePortable(preview.snapshot, preview.masterCatalog, preview.portableMedia).size.toLong()
-        } else {
-            PortableAppBundleCodec.encode(preview.snapshot, preview.masterCatalog, preview.encryptedMedia).size.toLong()
+        val estimatedPayload = when {
+            preview.containsPortableCustody -> PortableAppBundleCodec.encodePortable(
+                preview.snapshot,
+                preview.masterCatalog,
+                preview.portableMedia,
+                preview.custodySnapshot,
+            ).size.toLong()
+            preview.portableMedia.isNotEmpty() -> PortableAppBundleCodec.encodePortable(
+                preview.snapshot,
+                preview.masterCatalog,
+                preview.portableMedia,
+            ).size.toLong()
+            else -> PortableAppBundleCodec.encode(preview.snapshot, preview.masterCatalog, preview.encryptedMedia).size.toLong()
         }
         val requiredBytes = max(64L * 1024L * 1024L, estimatedPayload * 3L)
         val availableBytes = StatFs(filesDir.absolutePath).availableBytes
@@ -210,9 +228,14 @@ class RestoreActivity : FragmentActivity() {
         }
     }
 
-    private fun createSafetyBackup(current: AppSnapshot, masters: MasterCatalog, phrase: String) {
+    private fun createSafetyBackup(
+        current: AppSnapshot,
+        masters: MasterCatalog,
+        custody: CustodyPlacementSnapshot,
+        phrase: String,
+    ) {
         val media = PortableMediaSupport.collect(applicationContext)
-        val payload = try { PortableAppBundleCodec.encodePortable(current, masters, media) }
+        val payload = try { PortableAppBundleCodec.encodePortable(current, masters, media, custody) }
         finally { PortableMediaSupport.clear(media) }
         val bytes = PortableBackupCrypto.encrypt(payload, phrase.toCharArray(), current.schemaVersion)
         val dir = File(filesDir, "restore_safety").apply { mkdirs() }
@@ -226,6 +249,7 @@ class RestoreActivity : FragmentActivity() {
             "Pre-restore business verification failed"
         }
         require(decoded.masterCatalog == masters) { "Pre-restore master verification failed" }
+        require(decoded.containsPortableCustody && decoded.custodySnapshot == custody) { "Pre-restore custody verification failed" }
         dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(3)?.forEach(File::delete)
     }
 
@@ -249,6 +273,8 @@ private data class RestorePreview(
     val containsPortableMasters: Boolean,
     val encryptedMedia: Map<String, ByteArray>,
     val portableMedia: Map<String, ByteArray>,
+    val custodySnapshot: CustodyPlacementSnapshot,
+    val containsPortableCustody: Boolean,
     val inspection: SnapshotInspection,
     val sha256: String,
     val createdAt: Long,
@@ -372,7 +398,7 @@ private fun RestoreWizard(
     }
 
     RestorePanel(if (freshDevice) "New Device Recovery" else "Verified Backup Restore", message, Icons.Default.Restore) {
-        Text("Business + masters + photos verify hone ke baad hi restore hoga.", color = Color.Gray)
+        Text("Business + masters + photos + lockers/lots verify hone ke baad hi restore hoga.", color = Color.Gray)
         OutlinedButton(onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth()) {
             Text("Backup File Choose Karein")
         }
@@ -412,6 +438,10 @@ private fun RestoreWizard(
                     Text("Ledger entries: ${data.inspection.paymentEntryCount}")
                     Text("Photos: ${data.mediaCount}${if (data.portableMedia.isNotEmpty()) " • new-device portable ✅" else if (data.encryptedMedia.isNotEmpty()) " • legacy device-bound" else ""}")
                     Text(if (data.containsPortableMasters) "Masters: ${data.masterCatalog.entries.size}" else "Legacy backup: current masters preserve honge")
+                    Text(
+                        if (data.containsPortableCustody) "Lockers: ${data.custodySnapshot.locations.size} • External lots: ${data.custodySnapshot.lots.size} ✅"
+                        else "Legacy backup: current locker/lot data preserve hoga",
+                    )
                     Text("SHA-256: ${data.sha256.take(16)}…", fontSize = 12.sp, color = Color.Gray)
                 }
             }
@@ -420,7 +450,7 @@ private fun RestoreWizard(
                     runCatching { commitRestore(data, phrase) }
                         .onSuccess { result ->
                             restored = true
-                            message = "Restore successful • ${result.girviCount} girvi • ${result.mediaCount} photos verified."
+                            message = "Restore successful • ${result.girviCount} girvi • ${result.mediaCount} photos • ${result.custodyLotCount} external lots verified."
                         }
                         .onFailure { message = it.message ?: "Restore commit failed" }
                 },
