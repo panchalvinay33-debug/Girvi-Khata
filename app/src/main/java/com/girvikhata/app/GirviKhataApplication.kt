@@ -8,8 +8,11 @@ import android.view.WindowManager
 import com.girvikhata.app.backup.AutoBackupConfig
 import com.girvikhata.app.backup.AutoBackupWorker
 import com.girvikhata.app.backup.MediaCommitObserver
+import com.girvikhata.app.custody.CustodyIntegrityValidator
+import com.girvikhata.app.custody.CustodyPlacementStore
 import com.girvikhata.app.data.BusinessCommitObserver
 import com.girvikhata.app.data.DataSafetyJournal
+import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.InterruptedWriteRecoveryCoordinator
 import com.girvikhata.app.data.RestoreGenerationCoordinator
 import com.girvikhata.app.data.VerifiedWriteRecoveryRepair
@@ -33,6 +36,7 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         reconcile("WRITE_REPAIR_FAILED", "Verified write recovery repair failed") {
             VerifiedWriteRecoveryRepair(this).repairIfBlocked()
         }
+        runCustodyIntegrityCheck()
 
         commitObserver = BusinessCommitObserver(this).also { it.start() }
         mediaObserver = MediaCommitObserver(this).also { it.start() }
@@ -40,6 +44,37 @@ class GirviKhataApplication : Application(), Application.ActivityLifecycleCallba
         if (AutoBackupConfig(this).status().enabled) {
             runCatching { AutoBackupWorker.scheduleDaily(this) }
                 .onFailure { recordStartupFailure("AUTO_BACKUP_SCHEDULE_FAILED", "Automatic backup schedule failed", it) }
+        }
+    }
+
+    private fun runCustodyIntegrityCheck() {
+        runCatching {
+            val business = EncryptedRecordStore(this).load()
+            val custody = CustodyPlacementStore(this).load()
+            val knownItems = business.girvis.flatMap { girvi ->
+                girvi.effectiveItems.map { item -> girvi.id to item.id }
+            }.toSet()
+            val released = business.girvis.filter { it.status == "RELEASED" }.map { it.id }.toSet()
+            val issues = CustodyIntegrityValidator.validate(knownItems, released, custody)
+            if (issues.isNotEmpty()) {
+                val journal = DataSafetyJournal(this)
+                issues.take(20).forEach { issue ->
+                    journal.recordNamedEvent(
+                        "CUSTODY_INTEGRITY_${issue.code}",
+                        "Custody integrity warning",
+                        issue.detail.take(420),
+                    )
+                }
+                if (issues.size > 20) {
+                    journal.recordNamedEvent(
+                        "CUSTODY_INTEGRITY_MORE",
+                        "More custody integrity warnings",
+                        "${issues.size - 20} additional issue(s) not expanded",
+                    )
+                }
+            }
+        }.onFailure {
+            recordStartupFailure("CUSTODY_INTEGRITY_CHECK_FAILED", "Custody integrity check failed", it)
         }
     }
 
