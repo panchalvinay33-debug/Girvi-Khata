@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.girvikhata.app.custody.CustodyPlacementStore
+import com.girvikhata.app.custody.CustodyReportEngine
 import com.girvikhata.app.data.AppSnapshot
 import com.girvikhata.app.data.CustomerRecord
 import com.girvikhata.app.data.EncryptedRecordStore
@@ -136,7 +138,7 @@ class ReportsActivity : FragmentActivity() {
     }
 }
 
-private enum class ReportsPage { OVERVIEW, KHATA, GIRVI, COLLECTIONS }
+private enum class ReportsPage { OVERVIEW, KHATA, GIRVI, COLLECTIONS, CUSTODY }
 private enum class CollectionPreset { TODAY, SEVEN_DAYS, THIRTY_DAYS, ALL, CUSTOM }
 
 @Composable
@@ -260,10 +262,10 @@ private fun ReportsHome(snapshot: AppSnapshot, onSnapshotChanged: (AppSnapshot) 
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ReportsPage.entries.forEach { item ->
                     TextButton(onClick = { page = item }, modifier = Modifier.weight(1f)) {
-                        Text(if (page == item) "✓ ${item.label()}" else item.label(), fontSize = 11.sp)
+                        Text(if (page == item) "✓ ${item.label()}" else item.label(), fontSize = 10.sp)
                     }
                 }
             }
@@ -272,6 +274,7 @@ private fun ReportsHome(snapshot: AppSnapshot, onSnapshotChanged: (AppSnapshot) 
                 ReportsPage.KHATA -> CustomerLedgerReport(snapshot, onSnapshotChanged)
                 ReportsPage.GIRVI -> GirviFilterReport(snapshot)
                 ReportsPage.COLLECTIONS -> CollectionReport(snapshot)
+                ReportsPage.CUSTODY -> CustodyReport(snapshot)
             }
         }
     }
@@ -452,6 +455,51 @@ private fun GirviFilterReport(snapshot: AppSnapshot) {
 }
 
 @Composable
+private fun CustodyReport(snapshot: AppSnapshot) {
+    val context = LocalContext.current
+    val custody = remember { CustodyPlacementStore(context.applicationContext).load() }
+    val allItemIds = remember(snapshot) { snapshot.girvis.flatMap { it.effectiveItems }.map { it.id }.toSet() }
+    val report = remember(snapshot, custody) {
+        CustodyReportEngine.build(custody, allItemIds, System.currentTimeMillis(), movementLimit = 50)
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            ReportsBanner("Custody: ${allItemIds.size - report.unassignedItemIds.size} assigned • ${report.unassignedItemIds.size} unassigned")
+            Text("Locker / Storage", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        }
+        if (report.storage.isEmpty()) item { ReportsCard("No locker items", "Storage location assign karne par yahan summary dikhegi") }
+        items(report.storage, key = { "storage-${it.locationId}" }) { row ->
+            ReportsCard(row.locationName, "${row.itemCount} current item(s)")
+        }
+        item { Text("External Placement • Owner Finance", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+        if (report.externalParties.isEmpty()) item { ReportsCard("No active external placement", "Active lots/funding yahan dikhenge") }
+        items(report.externalParties, key = { "party-${it.partyId}" }) { row ->
+            ReportsCard(
+                row.partyName,
+                "${row.activeLotCount} active lot • ${row.activeItemCount} items • Principal ${reportsMoney(row.principalOutstandingPaise)} • Interest ${reportsMoney(row.interestOutstandingPaise)} • Total due ${reportsMoney(row.totalDuePaise)}",
+            )
+        }
+        if (report.unassignedItemIds.isNotEmpty()) {
+            item { Text("Unassigned Items", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+            items(report.unassignedItemIds.toList().take(50), key = { "unassigned-$it" }) { itemId ->
+                val girvi = snapshot.girvis.firstOrNull { g -> g.effectiveItems.any { it.id == itemId } }
+                val item = girvi?.effectiveItems?.firstOrNull { it.id == itemId }
+                ReportsCard(girvi?.girviNumber ?: "Unknown Girvi", "${girvi?.customerName.orEmpty()} • ${item?.itemName ?: itemId} • Location not assigned")
+            }
+        }
+        item { Text("Recent Movement", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+        items(report.recentMovements, key = { "move-${it.movementId}" }) { row ->
+            val girvi = snapshot.girvis.firstOrNull { it.id == row.girviId }
+            val item = girvi?.effectiveItems?.firstOrNull { it.id == row.itemId }
+            ReportsCard(
+                "${girvi?.girviNumber ?: row.girviId} • ${girvi?.customerName.orEmpty()}",
+                "${item?.itemName ?: row.itemId} → ${row.destinationLabel} • ${DateFormat.getDateInstance().format(Date(row.movedAt))}${if (row.note.isBlank()) "" else " • ${row.note}"}",
+            )
+        }
+    }
+}
+
+@Composable
 private fun CollectionReport(snapshot: AppSnapshot) {
     val context = LocalContext.current
     var preset by rememberSaveable { mutableStateOf(CollectionPreset.TODAY) }
@@ -610,6 +658,7 @@ private fun ReportsPage.label(): String = when (this) {
     ReportsPage.KHATA -> "Khata"
     ReportsPage.GIRVI -> "Girvi"
     ReportsPage.COLLECTIONS -> "Collection"
+    ReportsPage.CUSTODY -> "Custody"
 }
 
 private fun reportsMoney(paise: Long): String = "₹%,.2f".format(Locale("en", "IN"), paise / 100.0)
