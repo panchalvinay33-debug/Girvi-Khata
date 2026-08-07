@@ -1,5 +1,6 @@
 package com.girvikhata.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
@@ -79,6 +80,7 @@ class MasterCatalogActivity : FragmentActivity() {
                     MasterCatalogScreen(
                         catalog = catalog,
                         save = { next -> store.save(next); catalog = next },
+                        openCustody = { startActivity(Intent(this, CustodyPlacementActivity::class.java)) },
                         close = ::finish,
                     )
                 }
@@ -173,7 +175,7 @@ private fun MasterAuthScreen(
 }
 
 @Composable
-private fun MasterCatalogScreen(catalog: MasterCatalog, save: (MasterCatalog) -> Unit, close: () -> Unit) {
+private fun MasterCatalogScreen(catalog: MasterCatalog, save: (MasterCatalog) -> Unit, openCustody: () -> Unit, close: () -> Unit) {
     var addKind by remember { mutableStateOf<MasterKind?>(null) }
     var editing by remember { mutableStateOf<MasterEntry?>(null) }
     var message by remember { mutableStateOf("Encrypted master catalog ready") }
@@ -181,6 +183,9 @@ private fun MasterCatalogScreen(catalog: MasterCatalog, save: (MasterCatalog) ->
     Column(Modifier.fillMaxSize().background(Color(0xFFF6F7FB)).padding(14.dp)) {
         Text("Business Master Catalog", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(message, color = Color.Gray)
+        Button(onClick = openCustody, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text("🔐 Storage / Locker & External Placement")
+        }
         LazyColumn(
             modifier = Modifier.weight(1f).padding(top = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
