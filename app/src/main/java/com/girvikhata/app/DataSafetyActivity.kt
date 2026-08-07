@@ -3,6 +3,7 @@ package com.girvikhata.app
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -23,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,26 +40,40 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.girvikhata.app.data.DataSafetyJournal
 import com.girvikhata.app.data.DataSafetyStatus
 import com.girvikhata.app.data.EncryptedRecordStore
 import com.girvikhata.app.data.RecordStoreLoadState
+import com.girvikhata.app.security.BiometricAvailability
+import com.girvikhata.app.security.BiometricCapability
 import com.girvikhata.app.security.PinVerificationResult
 import com.girvikhata.app.security.SecurityPreferences
 import java.text.DateFormat
 import java.util.Date
 
 class DataSafetyActivity : FragmentActivity() {
+    private lateinit var security: SecurityPreferences
+    private lateinit var biometricCapability: BiometricCapability
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val security = SecurityPreferences(applicationContext)
+        security = SecurityPreferences(applicationContext)
+        biometricCapability = BiometricCapability(applicationContext)
         val journal = DataSafetyJournal(applicationContext)
         val store = EncryptedRecordStore(applicationContext)
         setContent {
             MaterialTheme {
+                val availability = if (security.sessionSettings().biometricUnlockEnabled) {
+                    biometricCapability.availability()
+                } else {
+                    BiometricAvailability.UNSUPPORTED
+                }
                 DataSafetyRoot(
                     verifyPin = { security.verify(it.toCharArray()) },
+                    biometricAvailability = availability,
+                    requestBiometric = ::requestBiometric,
                     loadStatus = { journal.status() to store.loadState() },
                     openBackup = { startActivity(Intent(this, BackupActivity::class.java)) },
                     close = ::finish,
@@ -64,24 +81,68 @@ class DataSafetyActivity : FragmentActivity() {
             }
         }
     }
+
+    private fun requestBiometric(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        if (!security.sessionSettings().biometricUnlockEnabled) {
+            onError("Fingerprint unlock disabled hai")
+            return
+        }
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) = onError(errString.toString())
+                override fun onAuthenticationFailed() = onError("Fingerprint match nahi hua")
+            },
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Data Safety Status")
+                .setSubtitle("Fingerprint se owner verify karein")
+                .setNegativeButtonText("Use PIN")
+                .build(),
+        )
+    }
 }
 
 @Composable
 private fun DataSafetyRoot(
     verifyPin: (String) -> PinVerificationResult,
+    biometricAvailability: BiometricAvailability,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
     loadStatus: () -> Pair<DataSafetyStatus, RecordStoreLoadState>,
     openBackup: () -> Unit,
     close: () -> Unit,
 ) {
     var unlocked by rememberSaveable { mutableStateOf(false) }
-    if (!unlocked) SafetyPinScreen(verifyPin, { unlocked = true }, close)
-    else SafetyDashboard(loadStatus, openBackup, close)
+    if (!unlocked) {
+        SafetyUnlockScreen(
+            biometricAvailability = biometricAvailability,
+            verifyPin = verifyPin,
+            requestBiometric = requestBiometric,
+            success = { unlocked = true },
+            close = close,
+        )
+    } else {
+        SafetyDashboard(loadStatus, openBackup, close)
+    }
 }
 
 @Composable
-private fun SafetyPinScreen(verifyPin: (String) -> PinVerificationResult, success: () -> Unit, close: () -> Unit) {
+private fun SafetyUnlockScreen(
+    biometricAvailability: BiometricAvailability,
+    verifyPin: (String) -> PinVerificationResult,
+    requestBiometric: (() -> Unit, (String) -> Unit) -> Unit,
+    success: () -> Unit,
+    close: () -> Unit,
+) {
+    val biometricFirst = biometricAvailability == BiometricAvailability.AVAILABLE
+    var usePin by rememberSaveable { mutableStateOf(!biometricFirst) }
     var pin by rememberSaveable { mutableStateOf("") }
-    var message by rememberSaveable { mutableStateOf("Data Safety dekhne ke liye PIN verify karein") }
+    var message by rememberSaveable {
+        mutableStateOf(if (biometricFirst) "Fingerprint se owner verify karein" else "Data Safety dekhne ke liye PIN verify karein")
+    }
     Column(
         Modifier.fillMaxSize().background(Color(0xFFF6F7FB)).padding(20.dp),
         verticalArrangement = Arrangement.Center,
@@ -92,28 +153,51 @@ private fun SafetyPinScreen(verifyPin: (String) -> PinVerificationResult, succes
         Text(message, color = Color.Gray)
         Card(Modifier.fillMaxWidth().padding(top = 18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    pin,
-                    { pin = it.filter(Char::isDigit).take(6) },
-                    label = { Text("6-digit PIN") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        when (val result = verifyPin(pin)) {
-                            PinVerificationResult.Success -> success()
-                            PinVerificationResult.NotConfigured -> message = "Main app mein PIN setup nahi mila"
-                            is PinVerificationResult.Locked -> message = "Security lock active hai"
-                            is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
+                if (!usePin && biometricFirst) {
+                    Button(
+                        onClick = { requestBiometric(success) { message = it } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Fingerprint, null)
+                        Text("  Fingerprint se Continue")
+                    }
+                    TextButton(
+                        onClick = { usePin = true; message = "6-digit PIN daalein" },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Use PIN instead") }
+                } else {
+                    OutlinedTextField(
+                        pin,
+                        { pin = it.filter(Char::isDigit).take(6) },
+                        label = { Text("6-digit PIN") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            when (val result = verifyPin(pin)) {
+                                PinVerificationResult.Success -> success()
+                                PinVerificationResult.NotConfigured -> message = "Main app mein PIN setup nahi mila"
+                                is PinVerificationResult.Locked -> message = "Security lock active hai"
+                                is PinVerificationResult.Failure -> message = "Galat PIN. Attempts: ${result.attempts}"
+                            }
+                            pin = ""
+                        },
+                        enabled = pin.length == 6,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("PIN Verify") }
+                    if (biometricFirst) {
+                        TextButton(
+                            onClick = { usePin = false; pin = ""; message = "Fingerprint se owner verify karein" },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Fingerprint, null)
+                            Text("  Use Fingerprint")
                         }
-                        pin = ""
-                    },
-                    enabled = pin.length == 6,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("PIN Verify") }
+                    }
+                }
                 OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("Close") }
             }
         }
@@ -171,16 +255,17 @@ private fun SafetyDashboard(
                     Button(onClick = openBackup, modifier = Modifier.weight(1f)) { Text("Backup Banaye") }
                     OutlinedButton(onClick = { data = loadStatus() }, modifier = Modifier.weight(1f)) { Text("Refresh") }
                 }
-                Text("Recent Activity", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Recent Activity / Audit Trail", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Har entry hash-chain se tamper-check hoti hai.", color = Color.Gray, fontSize = 12.sp)
             }
             if (status.events.isEmpty()) item { Text("Abhi journal entry nahi hai. Agla committed save automatically record hoga.", color = Color.Gray) }
-            items(status.events.asReversed().take(100), key = { it.id }) { event ->
+            items(status.events.asReversed().take(150), key = { it.id }) { event ->
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(event.title, fontWeight = FontWeight.Bold)
                         Text(event.detail, color = Color.Gray)
                         Text(DateFormat.getDateTimeInstance().format(Date(event.createdAt)), color = Color.Gray, fontSize = 11.sp)
-                        Text("Hash ${event.hash.take(12)}…", color = Color.Gray, fontSize = 10.sp)
+                        Text("${event.type} • Hash ${event.hash.take(12)}…", color = Color.Gray, fontSize = 10.sp)
                     }
                 }
             }
