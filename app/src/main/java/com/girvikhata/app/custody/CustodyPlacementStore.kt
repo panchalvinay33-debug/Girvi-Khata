@@ -1,6 +1,11 @@
 package com.girvikhata.app.custody
 
 import android.content.Context
+import com.girvikhata.app.domain.ExternalFundingAdvance
+import com.girvikhata.app.domain.ExternalFundingPayment
+import com.girvikhata.app.domain.ExternalFundingProjection
+import com.girvikhata.app.domain.ExternalInterestRule
+import com.girvikhata.app.domain.ExternalPlacementLedger
 import com.girvikhata.app.security.DeviceKeyManager
 import com.girvikhata.app.security.EncryptedPayload
 import org.json.JSONArray
@@ -48,6 +53,8 @@ data class PlacementLot(
     val note: String = "",
     val status: String = "ACTIVE",
     val items: List<PlacementItem> = emptyList(),
+    val fundingAdvances: List<ExternalFundingAdvance> = emptyList(),
+    val fundingPayments: List<ExternalFundingPayment> = emptyList(),
     val closedAt: Long? = null,
 )
 
@@ -70,7 +77,7 @@ data class CustodyPlacementSnapshot(
     val lots: List<PlacementLot> = emptyList(),
     val movements: List<CustodyMovement> = emptyList(),
 ) {
-    companion object { const val CURRENT_SCHEMA = 1 }
+    companion object { const val CURRENT_SCHEMA = 2 }
 }
 
 data class CurrentCustody(
@@ -143,20 +150,35 @@ class CustodyPlacementStore(
     }
 
     @Synchronized
-    fun moveToLocation(girviId: String, itemId: String, locationId: String, movedAt: Long, note: String): CustodyPlacementSnapshot {
+    fun moveToLocation(girviId: String, itemId: String, locationId: String, movedAt: Long, note: String): CustodyPlacementSnapshot =
+        moveItemsToLocation(listOf(girviId to itemId), locationId, movedAt, note)
+
+    @Synchronized
+    fun moveItemsToLocation(
+        itemRefs: List<Pair<String, String>>,
+        locationId: String,
+        movedAt: Long,
+        note: String,
+    ): CustodyPlacementSnapshot {
         val current = load()
         require(current.locations.any { it.id == locationId && it.active }) { "Active location nahi mili" }
+        require(itemRefs.isNotEmpty()) { "Items required" }
+        require(itemRefs.all { it.first.isNotBlank() && it.second.isNotBlank() }) { "Item reference invalid" }
+        require(itemRefs.map { it.second }.distinct().size == itemRefs.size) { "Same item duplicate hai" }
         require(movedAt > 0) { "Movement date invalid" }
-        val detachedLots = detachItemFromActiveLots(current.lots, itemId, movedAt)
-        val movement = CustodyMovement(
-            girviId = girviId,
-            itemId = itemId,
-            destinationType = "LOCATION",
-            destinationId = locationId,
-            movedAt = movedAt,
-            note = note.trim().take(250),
-        )
-        return current.copy(lots = detachedLots, movements = current.movements + movement).also(::save)
+        var detachedLots = current.lots
+        itemRefs.forEach { (_, itemId) -> detachedLots = detachItemFromActiveLots(detachedLots, itemId, movedAt) }
+        val movements = itemRefs.map { (girviId, itemId) ->
+            CustodyMovement(
+                girviId = girviId,
+                itemId = itemId,
+                destinationType = "LOCATION",
+                destinationId = locationId,
+                movedAt = movedAt,
+                note = note.trim().take(250),
+            )
+        }
+        return current.copy(lots = detachedLots, movements = current.movements + movements).also(::save)
     }
 
     @Synchronized
@@ -168,6 +190,7 @@ class CustodyPlacementStore(
         amountReceivedPaise: Long,
         monthlyRateBasisPoints: Int,
         note: String,
+        interestRule: ExternalInterestRule = ExternalInterestRule.EXACT_DAYS,
     ): CustodyPlacementSnapshot {
         val current = load()
         val number = lotNumber.trim().uppercase()
@@ -176,11 +199,24 @@ class CustodyPlacementStore(
         require(current.parties.any { it.id == partyId && it.active }) { "Active external party nahi mili" }
         require(itemRefs.isNotEmpty()) { "Kam se kam ek item select karein" }
         require(itemRefs.map { it.second }.distinct().size == itemRefs.size) { "Same item lot me do baar select hai" }
+        require(openedAt > 0L) { "Placement date invalid" }
         require(amountReceivedPaise >= 0L) { "Amount invalid" }
         require(monthlyRateBasisPoints in 0..100_000) { "Interest rate invalid" }
         val alreadyActive = current.lots.flatMap { lot -> lot.items.filter { it.removedAt == null }.map { it.itemId } }.toSet()
         require(itemRefs.none { it.second in alreadyActive }) { "Selected item pehle se active external lot me hai" }
         val lotId = UUID.randomUUID().toString()
+        val initialFunding = if (amountReceivedPaise > 0L) {
+            listOf(
+                ExternalFundingAdvance(
+                    id = "initial-$lotId",
+                    amountPaise = amountReceivedPaise,
+                    monthlyRateBasisPoints = monthlyRateBasisPoints,
+                    createdAt = openedAt,
+                    interestRule = interestRule,
+                    note = "Initial lot funding${if (note.isBlank()) "" else " • ${note.trim()}"}",
+                ),
+            )
+        } else emptyList()
         val lot = PlacementLot(
             id = lotId,
             lotNumber = number,
@@ -190,6 +226,7 @@ class CustodyPlacementStore(
             monthlyRateBasisPoints = monthlyRateBasisPoints,
             note = note.trim().take(250),
             items = itemRefs.map { (girviId, itemId) -> PlacementItem(girviId, itemId, openedAt) },
+            fundingAdvances = initialFunding,
         )
         val movements = itemRefs.map { (girviId, itemId) ->
             CustodyMovement(
@@ -210,6 +247,8 @@ class CustodyPlacementStore(
         val current = load()
         val lot = current.lots.firstOrNull { it.id == lotId && it.status == "ACTIVE" } ?: error("Active lot nahi mila")
         require(itemRefs.isNotEmpty()) { "Items select karein" }
+        require(addedAt >= lot.openedAt) { "Item date lot opening se pehle nahi ho sakti" }
+        require(itemRefs.map { it.second }.distinct().size == itemRefs.size) { "Same item duplicate hai" }
         val activeElsewhere = current.lots.flatMap { candidate -> candidate.items.filter { it.removedAt == null }.map { it.itemId } }.toSet()
         require(itemRefs.none { it.second in activeElsewhere }) { "Selected item active external lot me hai" }
         val updated = current.lots.map {
@@ -219,6 +258,75 @@ class CustodyPlacementStore(
             CustodyMovement(girviId = girviId, itemId = itemId, destinationType = "EXTERNAL", destinationId = lot.partyId, lotId = lotId, movedAt = addedAt, note = note.trim().take(250))
         }
         return current.copy(lots = updated, movements = current.movements + movements).also(::save)
+    }
+
+    @Synchronized
+    fun addExternalAdvance(
+        lotId: String,
+        amountPaise: Long,
+        monthlyRateBasisPoints: Int,
+        createdAt: Long,
+        interestRule: ExternalInterestRule,
+        note: String,
+    ): CustodyPlacementSnapshot {
+        val current = load()
+        val lot = current.lots.firstOrNull { it.id == lotId && it.status == "ACTIVE" } ?: error("Active lot nahi mila")
+        require(amountPaise > 0L) { "External advance positive hona chahiye" }
+        require(monthlyRateBasisPoints in 0..100_000) { "Interest rate invalid" }
+        require(createdAt >= lot.openedAt) { "Advance date lot opening se pehle nahi ho sakti" }
+        val advance = ExternalFundingAdvance(
+            amountPaise = amountPaise,
+            monthlyRateBasisPoints = monthlyRateBasisPoints,
+            createdAt = createdAt,
+            interestRule = interestRule,
+            note = note.trim().take(250),
+        )
+        return current.copy(lots = current.lots.map { if (it.id == lotId) it.copy(fundingAdvances = it.fundingAdvances + advance) else it }).also(::save)
+    }
+
+    @Synchronized
+    fun addExternalPayment(lotId: String, amountPaise: Long, createdAt: Long, note: String): CustodyPlacementSnapshot {
+        val current = load()
+        val lot = current.lots.firstOrNull { it.id == lotId && it.status == "ACTIVE" } ?: error("Active lot nahi mila")
+        require(amountPaise > 0L) { "External payment positive hona chahiye" }
+        require(createdAt >= lot.openedAt) { "Payment date lot opening se pehle nahi ho sakti" }
+        val projection = ExternalPlacementLedger.project(lot.fundingAdvances, lot.fundingPayments, createdAt)
+        require(amountPaise <= projection.totalDuePaise) { "Payment external due se zyada hai" }
+        val payment = ExternalFundingPayment(amountPaise = amountPaise, createdAt = createdAt, note = note.trim().take(250))
+        return current.copy(lots = current.lots.map { if (it.id == lotId) it.copy(fundingPayments = it.fundingPayments + payment) else it }).also(::save)
+    }
+
+    @Synchronized
+    fun reverseExternalPayment(lotId: String, paymentId: String, createdAt: Long, reason: String): CustodyPlacementSnapshot {
+        val current = load()
+        val lot = current.lots.firstOrNull { it.id == lotId && it.status == "ACTIVE" } ?: error("Active lot nahi mila")
+        val original = lot.fundingPayments.firstOrNull { it.id == paymentId && !it.isReversal } ?: error("External payment nahi mila")
+        require(lot.fundingPayments.none { it.isReversal && it.reversedPaymentId == paymentId }) { "Payment already reversed hai" }
+        require(reason.trim().length >= 3) { "Reversal reason required" }
+        require(createdAt >= original.createdAt) { "Reversal date payment se pehle nahi ho sakti" }
+        val reversal = ExternalFundingPayment(
+            amountPaise = original.amountPaise,
+            createdAt = createdAt,
+            note = "Reversal: ${reason.trim().take(220)}",
+            isReversal = true,
+            reversedPaymentId = original.id,
+        )
+        return current.copy(lots = current.lots.map { if (it.id == lotId) it.copy(fundingPayments = it.fundingPayments + reversal) else it }).also(::save)
+    }
+
+    fun financeProjection(lotId: String, at: Long, snapshot: CustodyPlacementSnapshot = load()): ExternalFundingProjection {
+        val lot = snapshot.lots.firstOrNull { it.id == lotId } ?: error("Lot nahi mila")
+        return ExternalPlacementLedger.project(lot.fundingAdvances, lot.fundingPayments, at)
+    }
+
+    @Synchronized
+    fun closeLot(lotId: String, closedAt: Long): CustodyPlacementSnapshot {
+        val current = load()
+        val lot = current.lots.firstOrNull { it.id == lotId && it.status == "ACTIVE" } ?: error("Active lot nahi mila")
+        require(lot.items.none { it.removedAt == null }) { "Lot close se pehle sab items return/transfer karein" }
+        val due = ExternalPlacementLedger.project(lot.fundingAdvances, lot.fundingPayments, closedAt).totalDuePaise
+        require(due == 0L) { "External due ${due} paise baki hai" }
+        return current.copy(lots = current.lots.map { if (it.id == lotId) it.copy(status = "CLOSED", closedAt = closedAt) else it }).also(::save)
     }
 
     fun currentCustody(itemId: String, snapshot: CustodyPlacementSnapshot = load()): CurrentCustody? =
@@ -244,6 +352,19 @@ class CustodyPlacementStore(
         require(snapshot.lots.all { it.partyId in partyIds }) { "Lot party link missing" }
         val activeItemIds = snapshot.lots.flatMap { lot -> lot.items.filter { it.removedAt == null }.map { it.itemId } }
         require(activeItemIds.distinct().size == activeItemIds.size) { "Item multiple active lots me hai" }
+        snapshot.lots.forEach { lot ->
+            require(lot.status in setOf("ACTIVE", "CLOSED")) { "Lot status invalid" }
+            require(lot.openedAt > 0L && lot.amountReceivedPaise >= 0L && lot.monthlyRateBasisPoints in 0..100_000) { "Lot finance invalid" }
+            require(lot.items.map { it.itemId }.distinct().size == lot.items.size) { "Lot duplicate item" }
+            require(lot.fundingAdvances.all { it.amountPaise > 0L && it.createdAt >= lot.openedAt && it.monthlyRateBasisPoints in 0..100_000 }) { "External funding advance invalid" }
+            require(lot.fundingPayments.all { it.amountPaise > 0L && it.createdAt >= lot.openedAt }) { "External funding payment invalid" }
+            val paymentIds = lot.fundingPayments.map { it.id }
+            require(paymentIds.distinct().size == paymentIds.size) { "Duplicate external payment ID" }
+            lot.fundingPayments.filter { it.isReversal }.forEach { reversal ->
+                require(!reversal.reversedPaymentId.isNullOrBlank()) { "External reversal link missing" }
+                require(lot.fundingPayments.any { !it.isReversal && it.id == reversal.reversedPaymentId }) { "External reversal original missing" }
+            }
+        }
         val locationIds = snapshot.locations.map { it.id }.toSet()
         snapshot.movements.forEach { movement ->
             require(movement.girviId.isNotBlank() && movement.itemId.isNotBlank() && movement.movedAt > 0) { "Custody movement invalid" }
@@ -293,6 +414,12 @@ class CustodyPlacementStore(
         put("lots", JSONArray().apply { snapshot.lots.forEach { lot -> put(JSONObject().apply {
             put("id", lot.id); put("lotNumber", lot.lotNumber); put("partyId", lot.partyId); put("openedAt", lot.openedAt); put("amountReceivedPaise", lot.amountReceivedPaise); put("monthlyRateBasisPoints", lot.monthlyRateBasisPoints); put("note", lot.note); put("status", lot.status); put("closedAt", lot.closedAt ?: JSONObject.NULL)
             put("items", JSONArray().apply { lot.items.forEach { item -> put(JSONObject().apply { put("girviId", item.girviId); put("itemId", item.itemId); put("addedAt", item.addedAt); put("removedAt", item.removedAt ?: JSONObject.NULL) }) } })
+            put("fundingAdvances", JSONArray().apply { lot.fundingAdvances.forEach { advance -> put(JSONObject().apply {
+                put("id", advance.id); put("amountPaise", advance.amountPaise); put("monthlyRateBasisPoints", advance.monthlyRateBasisPoints); put("createdAt", advance.createdAt); put("interestRule", advance.interestRule.name); put("note", advance.note)
+            }) } })
+            put("fundingPayments", JSONArray().apply { lot.fundingPayments.forEach { payment -> put(JSONObject().apply {
+                put("id", payment.id); put("amountPaise", payment.amountPaise); put("createdAt", payment.createdAt); put("note", payment.note); put("isReversal", payment.isReversal); put("reversedPaymentId", payment.reversedPaymentId ?: JSONObject.NULL)
+            }) } })
         }) } })
         put("movements", JSONArray().apply { snapshot.movements.forEach { value -> put(JSONObject().apply {
             put("id", value.id); put("girviId", value.girviId); put("itemId", value.itemId); put("destinationType", value.destinationType); put("destinationId", value.destinationId); put("lotId", value.lotId ?: JSONObject.NULL); put("movedAt", value.movedAt); put("note", value.note); put("createdAt", value.createdAt)
@@ -315,9 +442,31 @@ class CustodyPlacementStore(
             } },
             lots = List(lots.length()) { index -> lots.getJSONObject(index).run {
                 val itemArray = optJSONArray("items") ?: JSONArray()
+                val lotId = getString("id")
+                val openedAt = getLong("openedAt")
+                val legacyAmount = getLong("amountReceivedPaise")
+                val legacyRate = optInt("monthlyRateBasisPoints")
+                val advanceArray = optJSONArray("fundingAdvances")
+                val paymentArray = optJSONArray("fundingPayments") ?: JSONArray()
+                val advances = if (advanceArray == null && legacyAmount > 0L) {
+                    listOf(ExternalFundingAdvance(id = "initial-$lotId", amountPaise = legacyAmount, monthlyRateBasisPoints = legacyRate, createdAt = openedAt, interestRule = ExternalInterestRule.EXACT_DAYS, note = "Migrated initial lot funding"))
+                } else {
+                    val array = advanceArray ?: JSONArray()
+                    List(array.length()) { advanceIndex -> array.getJSONObject(advanceIndex).run {
+                        ExternalFundingAdvance(
+                            id = getString("id"), amountPaise = getLong("amountPaise"), monthlyRateBasisPoints = optInt("monthlyRateBasisPoints"), createdAt = getLong("createdAt"),
+                            interestRule = runCatching { ExternalInterestRule.valueOf(optString("interestRule", ExternalInterestRule.EXACT_DAYS.name)) }.getOrDefault(ExternalInterestRule.EXACT_DAYS),
+                            note = optString("note"),
+                        )
+                    } }
+                }
                 PlacementLot(
-                    id = getString("id"), lotNumber = getString("lotNumber"), partyId = getString("partyId"), openedAt = getLong("openedAt"), amountReceivedPaise = getLong("amountReceivedPaise"), monthlyRateBasisPoints = optInt("monthlyRateBasisPoints"), note = optString("note"), status = optString("status", "ACTIVE"),
+                    id = lotId, lotNumber = getString("lotNumber"), partyId = getString("partyId"), openedAt = openedAt, amountReceivedPaise = legacyAmount, monthlyRateBasisPoints = legacyRate, note = optString("note"), status = optString("status", "ACTIVE"),
                     items = List(itemArray.length()) { itemIndex -> itemArray.getJSONObject(itemIndex).run { PlacementItem(getString("girviId"), getString("itemId"), getLong("addedAt"), optNullableLong("removedAt")) } },
+                    fundingAdvances = advances,
+                    fundingPayments = List(paymentArray.length()) { paymentIndex -> paymentArray.getJSONObject(paymentIndex).run {
+                        ExternalFundingPayment(getString("id"), getLong("amountPaise"), getLong("createdAt"), optString("note"), optBoolean("isReversal", false), optNullableString("reversedPaymentId"))
+                    } },
                     closedAt = optNullableLong("closedAt"),
                 )
             } },
